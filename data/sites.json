@@ -1,0 +1,16 @@
+{
+  "sites": [
+    {
+      "site_id": "nts-main",
+      "brand_name": "Nationwide Transport Services",
+      "domain": "https://www.nationwidetransportservices.com",
+      "status": "verified"
+    },
+    {
+      "site_id": "het-main",
+      "brand_name": "Heavy Equipment Transport",
+      "domain": "https://www.heavyequipmenttransport.com",
+      "status": "verified"
+    }
+  ]
+}
