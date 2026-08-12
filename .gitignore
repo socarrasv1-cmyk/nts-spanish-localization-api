@@ -1,0 +1,30 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Runtime data / artifacts
+data/artifacts/
+data/jobs/
+data/packages/
+data/*.db
+*.sqlite3
+
+# Git staging workspace
+git-repo/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log
