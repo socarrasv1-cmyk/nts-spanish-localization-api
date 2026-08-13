@@ -25,6 +25,59 @@ app = FastAPI(
 tm_service = TranslationMemory()
 git_service = GitStaging()
 
+# Canonical site IDs used by the persistent registry. GPT callers may use the
+# shorter public aliases shown in the Action schema.
+SITE_ID_ALIASES = {
+    "het": "het-main",
+    "het-main": "het-main",
+    "nts": "nts-main",
+    "nts-main": "nts-main",
+}
+
+# Packaged fallback keeps the first approved HET mapping available even when a
+# Render persistent disk predates the repository data seed.
+DEFAULT_URL_MAPPINGS = [
+    {
+        "source_url": "/services/break-bulk-transport.php",
+        "spanish_url": "/es/servicios/transporte-de-carga-fraccionada.php",
+        "site_id": "het-main",
+        "approved": True,
+        "status": "approved",
+    }
+]
+
+
+def normalize_site_id(site_id: Optional[str]) -> str:
+    normalized = (site_id or "").strip().lower()
+    return SITE_ID_ALIASES.get(normalized, normalized)
+
+
+def find_approved_url_mapping(site_id: str, source_url: str) -> Optional[Dict[str, Any]]:
+    url_data = store.load("url_map")
+    stored_mappings = url_data.get("url_mappings") or url_data.get("mappings") or []
+    mappings = list(stored_mappings) + DEFAULT_URL_MAPPINGS
+
+    requested_site = normalize_site_id(site_id)
+    requested_source = (source_url or "").strip()
+
+    for mapping in mappings:
+        mapping_site = normalize_site_id(mapping.get("site_id"))
+        mapping_source = mapping.get("source_url") or mapping.get("english_url")
+        is_approved = (
+            mapping.get("approved") is True
+            or str(mapping.get("status", "")).lower() == "approved"
+        )
+        if mapping_site == requested_site and mapping_source == requested_source and is_approved:
+            return {
+                "source_url": mapping_source,
+                "spanish_url": mapping.get("spanish_url"),
+                "site_id": mapping_site,
+                "approved": True,
+                "approved_by": mapping.get("approved_by"),
+                "approved_at": mapping.get("approved_at"),
+            }
+    return None
+
 # ============================================================================
 # HEALTH & METADATA
 # ============================================================================
@@ -173,21 +226,45 @@ async def get_artifact(
 # URL MAPPING
 # ============================================================================
 
+@app.get("/v2/url-map/approved")
+async def url_map_approved(
+    site_id: str,
+    source_url: str,
+    authorization: Optional[str] = Header(None)
+):
+    """Return an approved English-to-Spanish URL mapping."""
+    verify_bearer_token(authorization)
+    mapping = find_approved_url_mapping(site_id, source_url)
+    if mapping is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No approved URL mapping found for the requested site and source URL"
+        )
+    return {
+        "ok": True,
+        "request_id": str(uuid.uuid4()),
+        "data": mapping
+    }
+
+
 @app.post("/v2/url-map/get")
 async def url_map_get(
     request: Dict[str, Any],
     authorization: Optional[str] = Header(None)
 ):
-    """Get the authoritative English-to-Spanish URL mapping."""
+    """Backward-compatible approved URL mapping lookup."""
     verify_bearer_token(authorization)
+    source_url = request.get("source_url") or request.get("english_url")
+    mapping = find_approved_url_mapping(request.get("site_id"), source_url)
+    if mapping is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No approved URL mapping found for the requested site and source URL"
+        )
     return {
         "ok": True,
         "request_id": str(uuid.uuid4()),
-        "data": {
-            "english_url": request.get("english_url"),
-            "spanish_url": "/es/servicios/...",
-            "status": "approved"
-        }
+        "data": mapping
     }
 
 
