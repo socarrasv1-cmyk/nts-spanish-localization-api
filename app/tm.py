@@ -4,6 +4,20 @@ import uuid
 from datetime import datetime
 
 
+DEFAULT_APPROVED_ENTRIES = [
+    {
+        "source": "Start Quote",
+        "translation": "Iniciar cotización",
+        "site_id": "het-main",
+        "component": "CTA",
+        "context": "Primary quote call-to-action",
+        "locale": "es-US",
+        "approved": True,
+        "approved_by": "system-seed"
+    }
+]
+
+
 class TranslationMemory:
     """
     Translation Memory service.
@@ -17,20 +31,48 @@ class TranslationMemory:
     def search(self, source: str, locale: str = "es-US", site_id: Optional[str] = None, component: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Search approved Translation Memory.
-        Site-specific matches win over global matches.
+        Site-specific matches win over global matches. Packaged approved entries
+        remain available when a persistent Render disk predates a data seed.
         """
         tm_data = store.load(self.store_key)
+        entries = list(tm_data.get("entries", [])) + DEFAULT_APPROVED_ENTRIES
         results = []
+        normalized_component = component.strip().lower() if component else None
         
-        for entry in tm_data.get("entries", []):
-            if entry.get("source") == source and entry.get("locale") == locale and entry.get("approved"):
+        for entry in entries:
+            entry_component = str(entry.get("component", "")).strip().lower()
+            component_matches = (
+                normalized_component is None
+                or entry_component == normalized_component
+            )
+            if (
+                entry.get("source") == source
+                and entry.get("locale") == locale
+                and entry.get("approved")
+                and component_matches
+            ):
                 # Site-specific match preferred
                 if site_id and entry.get("site_id") == site_id:
                     results.insert(0, entry)
                 elif not site_id or entry.get("site_id") is None:
                     results.append(entry)
         
-        return results[:5]  # Return top 5 matches
+        # Deduplicate persistent and packaged entries.
+        unique_results = []
+        seen = set()
+        for entry in results:
+            key = (
+                entry.get("source"),
+                entry.get("translation"),
+                entry.get("site_id"),
+                entry.get("component"),
+                entry.get("locale"),
+            )
+            if key not in seen:
+                seen.add(key)
+                unique_results.append(entry)
+        
+        return unique_results[:5]  # Return top 5 matches
     
     def propose(self, source: str, translation: str, site_id: Optional[str] = None, 
                 component: Optional[str] = None, context: Optional[str] = None,
