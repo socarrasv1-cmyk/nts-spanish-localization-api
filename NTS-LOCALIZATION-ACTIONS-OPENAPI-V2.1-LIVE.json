@@ -1,0 +1,1357 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "NTS Localization API V2.1",
+    "version": "2.1.0",
+    "description": "FastAPI for NTS Spanish Intelligence Hub — Staging-only localization, validation, Translation Memory approval, and Git staging",
+    "contact": {
+      "name": "NTS Support",
+      "url": "https://www.nationwidetransportservices.com"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://nts-localization-api.onrender.com",
+      "description": "Staging HTTPS endpoint (Render Starter plan) — PLACEHOLDER: update after real deployment"
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Bearer token (NTS_API_KEY environment variable)"
+      }
+    },
+    "schemas": {
+      "HealthResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "example": "ok"
+          },
+          "service": {
+            "type": "string",
+            "example": "nts-localization-api"
+          },
+          "version": {
+            "type": "string",
+            "example": "2.1.0"
+          }
+        }
+      },
+      "ValidationResult": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": ["PASS", "FAIL", "REVIEW"]
+              },
+              "blocking": {
+                "type": "boolean"
+              },
+              "issues": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "metrics": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      },
+      "QAResult": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "score": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 100,
+                "description": "QA score (0-100). READY requires >= 95."
+              },
+              "status": {
+                "type": "string",
+                "enum": ["READY", "NEEDS_REVIEW", "BLOCKED"],
+                "description": "Publication status. READY: score >= 95 AND zero blockers. BLOCKED: any blocking failure."
+              },
+              "blocking_issues": {
+                "type": "array",
+                "description": "List of blocking issues that prevent publication"
+              },
+              "checks": {
+                "type": "object",
+                "description": "Individual validator results"
+              }
+            }
+          }
+        }
+      },
+      "TranslationMemoryEntry": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "example": "Start Quote"
+          },
+          "translation": {
+            "type": "string",
+            "example": "Iniciar cotización"
+          },
+          "site_id": {
+            "type": "string",
+            "nullable": true,
+            "description": "null = global entry, specific site_id = site-specific override (preferred)"
+          },
+          "component": {
+            "type": "string"
+          },
+          "context": {
+            "type": "string"
+          },
+          "locale": {
+            "type": "string",
+            "example": "es-US"
+          },
+          "approved": {
+            "type": "boolean",
+            "description": "true = human-approved canonical TM entry"
+          },
+          "approved_by": {
+            "type": "string"
+          },
+          "approved_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Proposal": {
+        "type": "object",
+        "properties": {
+          "proposal_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "source": {
+            "type": "string"
+          },
+          "translation": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["proposed", "approved", "rejected"],
+            "description": "Proposal workflow status"
+          },
+          "site_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "component": {
+            "type": "string"
+          },
+          "context": {
+            "type": "string"
+          },
+          "locale": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reviewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "reviewer": {
+            "type": "string",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/healthz": {
+      "get": {
+        "operationId": "healthCheck",
+        "summary": "Health check endpoint (no authentication required)",
+        "tags": ["Health"],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Service is healthy and operational",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v2/sites": {
+      "get": {
+        "operationId": "listVerifiedSites",
+        "summary": "List verified NTS sites available for localization",
+        "tags": ["Sites"],
+        "responses": {
+          "200": {
+            "description": "List of verified sites"
+          },
+          "401": {
+            "description": "Missing or invalid Bearer token"
+          }
+        }
+      }
+    },
+    "/v2/url-map/get": {
+      "post": {
+        "operationId": "getApprovedURLMapping",
+        "summary": "Get authoritative English-to-Spanish URL mapping",
+        "description": "Returns ONLY APPROVED mappings. Use /v2/url-map/validate to test candidate URLs separately.",
+        "tags": ["URL Mapping"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "english_url": {
+                    "type": "string",
+                    "example": "/services/break-bulk-transport.php"
+                  },
+                  "site_id": {
+                    "type": "string",
+                    "example": "het"
+                  }
+                },
+                "required": ["english_url", "site_id"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Approved mapping found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "english_url": {
+                          "type": "string"
+                        },
+                        "spanish_url": {
+                          "type": "string",
+                          "example": "/es/servicios/transporte-de-carga-fraccionada.php"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": ["approved"]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/v2/url-map/validate": {
+      "post": {
+        "operationId": "validateSpanishURLCandidate",
+        "summary": "Validate a proposed Spanish URL candidate",
+        "description": "Validation is DISTINCT from approval. A PASS result does NOT automatically approve the URL. Use /v2/url-map/get for approved mappings only.",
+        "tags": ["URL Mapping"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "candidate_url": {
+                    "type": "string",
+                    "example": "/es/servicios/transporte-de-carga-fraccionada.php"
+                  },
+                  "site_id": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Validation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/v2/validate/php": {
+      "post": {
+        "operationId": "validatePHPSyntax",
+        "summary": "Lint Spanish PHP artifact without executing it",
+        "tags": ["Validators"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "artifact_id": {
+                    "type": "string"
+                  },
+                  "site_id": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "PHP validation result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/v2/validate/structure": {
+      "post": {
+        "operationId": "validateDOMStructure",
+        "summary": "Compare English and Spanish DOM structure parity",
+        "tags": ["Validators"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "site_id": {
+                    "type": "string"
+                  },
+                  "english_artifact_id": {
+                    "type": "string"
+                  },
+                  "spanish_artifact_id": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/schemas/ValidationResult"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/v2/validate/protected-tokens": {
+      "post": {
+        "operationId": "validateProtectedTokens",
+        "summary": "Verify protected tokens are unchanged (PHP code, variables, constants, HTML IDs/classes, contact info, analytics IDs, etc.)",
+        "tags": ["Validators"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "site_id": {
+                    "type": "string"
+                  },
+                  "english_artifact_id": {
+                    "type": "string"
+                  },
+                  "spanish_artifact_id": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/schemas/ValidationResult"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/v2/validate/english-residue": {
+      "post": {
+        "operationId": "validateEnglishResidue",
+        "summary": "Scan Spanish artifact for unintended English text",
+        "tags": ["Validators"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "artifact_id": {
+                    "type": "string"
+                  },
+                  "site_id": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/schemas/ValidationResult"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/v2/validate/schema": {
+      "post": {
+        "operationId": "validateSchema",
+        "summary": "Validate localized JSON-LD/schema syntax, URLs, IDs, and visible-content parity",
+        "tags": ["Validators"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "site_id": {
+                    "type": "string"
+                  },
+                  "spanish_artifact_id": {
+                    "type": "string"
+                  },
+                  "spanish_url": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/schemas/ValidationResult"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/v2/validate/links": {
+      "post": {
+        "operationId": "validateLinks",
+        "summary": "Validate internal links, breadcrumbs, canonical tag, hreflang, and mapped targets",
+        "tags": ["Validators"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "site_id": {
+                    "type": "string"
+                  },
+                  "english_url": {
+                    "type": "string"
+                  },
+                  "spanish_url": {
+                    "type": "string"
+                  },
+                  "spanish_artifact_id": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "$ref": "#/components/schemas/ValidationResult"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/v2/qa/page": {
+      "post": {
+        "operationId": "runPageQA",
+        "summary": "Run complete publication QA gate",
+        "description": "READY status requires: score >= 95 AND zero blocking failures. Does not weaken this gate. Runs all six validators plus QA checks.",
+        "tags": ["QA"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "site_id": {
+                    "type": "string"
+                  },
+                  "artifact_id": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "QA result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QAResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/v2/qa/batch": {
+      "post": {
+        "operationId": "runBatchQA",
+        "summary": "Run batch QA and detect silent skips, duplicate targets, and blockers",
+        "tags": ["QA"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expected_job_count": {
+                    "type": "integer",
+                    "description": "Expected number of jobs in the batch"
+                  },
+                  "job_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Actual job IDs received"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Batch QA result with completeness check"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/v2/tm/search": {
+      "post": {
+        "operationId": "searchTranslationMemory",
+        "summary": "Search approved Translation Memory",
+        "description": "Returns approved TM entries. Site-specific match preferred over global. Exact match only.",
+        "tags": ["Translation Memory"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "example": "Start Quote"
+                  },
+                  "locale": {
+                    "type": "string",
+                    "example": "es-US"
+                  },
+                  "site_id": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "component": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Approved TM matches",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "matches": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/TranslationMemoryEntry"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/v2/tm/proposals": {
+      "post": {
+        "operationId": "submitTranslationProposal",
+        "summary": "Submit a translation proposal for human review",
+        "description": "New translations do NOT auto-approve. Proposal enters 'proposed' status and requires explicit reviewer approval.",
+        "tags": ["Translation Memory"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "string",
+                    "example": "Start Quote"
+                  },
+                  "translation": {
+                    "type": "string",
+                    "example": "Iniciar cotización"
+                  },
+                  "site_id": {
+                    "type": "string",
+                    "nullable": true
+                  },
+                  "component": {
+                    "type": "string"
+                  },
+                  "context": {
+                    "type": "string"
+                  },
+                  "locale": {
+                    "type": "string",
+                    "example": "es-US"
+                  },
+                  "notes": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Proposal created (status: proposed)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/Proposal"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      },
+      "get": {
+        "operationId": "listTranslationProposals",
+        "summary": "List Translation Memory proposals by status",
+        "tags": ["Translation Memory"],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": ["proposed", "approved", "rejected"]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of proposals matching status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "proposals": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/Proposal"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/v2/tm/proposals/{proposal_id}/approve": {
+      "post": {
+        "operationId": "approveTranslationProposal",
+        "summary": "Approve a translation proposal (human review only)",
+        "description": "Moves proposal to 'approved' status and adds it to canonical TM.",
+        "tags": ["Translation Memory"],
+        "parameters": [
+          {
+            "name": "proposal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reviewer": {
+                    "type": "string",
+                    "example": "reviewer-name"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "example": "Verified translation against glossary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Proposal approved and added to canonical TM",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/Proposal"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Proposal not found"
+          }
+        }
+      }
+    },
+    "/v2/tm/proposals/{proposal_id}/reject": {
+      "post": {
+        "operationId": "rejectTranslationProposal",
+        "summary": "Reject a translation proposal",
+        "description": "Moves proposal to 'rejected' status. Does NOT add to canonical TM.",
+        "tags": ["Translation Memory"],
+        "parameters": [
+          {
+            "name": "proposal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reviewer": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Proposal rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/Proposal"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          },
+          "404": {
+            "description": "Proposal not found"
+          }
+        }
+      }
+    },
+    "/v2/git/status": {
+      "get": {
+        "operationId": "getGitStagingStatus",
+        "summary": "Get Git staging repository status",
+        "description": "Returns current Git staging configuration including NTS_GIT_PUSH_ENABLED (false in staging by default).",
+        "tags": ["Git Staging"],
+        "responses": {
+          "200": {
+            "description": "Git staging status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "repo_path": {
+                          "type": "string"
+                        },
+                        "remote_name": {
+                          "type": "string"
+                        },
+                        "default_base_branch": {
+                          "type": "string"
+                        },
+                        "push_enabled": {
+                          "type": "boolean",
+                          "description": "false by default in staging"
+                        },
+                        "initialized": {
+                          "type": "boolean"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/v2/git/branches": {
+      "post": {
+        "operationId": "createStagingBranch",
+        "summary": "Create a staging-only translation branch",
+        "description": "Creates a local Git branch for staging translation changes. No production deployment.",
+        "tags": ["Git Staging"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "branch_name": {
+                    "type": "string",
+                    "example": "feature/transport-es"
+                  },
+                  "base_branch": {
+                    "type": "string",
+                    "example": "main"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Branch created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "branch": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": ["created"]
+                        },
+                        "base_branch": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid branch name (unsafe characters, path traversal, etc.)"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/v2/git/stage": {
+      "post": {
+        "operationId": "stageTranslationFiles",
+        "summary": "Write READY translation files to staging and commit",
+        "description": "Stage only after QA has returned READY status.",
+        "tags": ["Git Staging"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "branch_name": {
+                    "type": "string"
+                  },
+                  "files": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "path": {
+                          "type": "string",
+                          "example": "es/servicios/transporte.php"
+                        },
+                        "content": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  },
+                  "commit_message": {
+                    "type": "string",
+                    "example": "Localize transport pages (QA READY)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Files staged and committed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "branch": {
+                          "type": "string"
+                        },
+                        "files_staged": {
+                          "type": "integer"
+                        },
+                        "commit_message": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": ["committed"]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Git staging error"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/v2/git/push": {
+      "post": {
+        "operationId": "pushTranslationBranch",
+        "summary": "Push an existing translation branch",
+        "description": "Only available when NTS_GIT_PUSH_ENABLED=true (requires explicit approval before deployment). Returns 400 if push is disabled.",
+        "tags": ["Git Staging"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "branch_name": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Branch pushed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "branch": {
+                          "type": "string"
+                        },
+                        "remote": {
+                          "type": "string"
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": ["pushed"]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Push is disabled (NTS_GIT_PUSH_ENABLED=false in staging)"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    },
+    "/v2/git/draft-pr": {
+      "post": {
+        "operationId": "createDraftPullRequest",
+        "summary": "Create a draft GitHub pull request for human review",
+        "description": "Requires NTS_GITHUB_TOKEN to be configured. Creates draft PR that requires manual review before merge.",
+        "tags": ["Git Staging"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "branch_name": {
+                    "type": "string"
+                  },
+                  "base_branch": {
+                    "type": "string",
+                    "example": "main"
+                  },
+                  "title": {
+                    "type": "string",
+                    "example": "Localize transport pages"
+                  },
+                  "body": {
+                    "type": "string",
+                    "description": "PR description with context"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Draft PR created or queued for creation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "request_id": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "pr_number": {
+                          "type": "integer",
+                          "nullable": true
+                        },
+                        "status": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "GitHub token not configured"
+          },
+          "401": {
+            "description": "Unauthorized"
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Health",
+      "description": "Service health and readiness (no authentication required)"
+    },
+    {
+      "name": "Sites",
+      "description": "Verified NTS site registry for localization"
+    },
+    {
+      "name": "URL Mapping",
+      "description": "Authoritative approved URL mappings and candidate validation (distinct: validation ≠ approval)"
+    },
+    {
+      "name": "Validators",
+      "description": "Six NTS strict-mirror validators: PHP syntax, DOM structure, protected tokens, English residue, JSON-LD schema, links/canonical/hreflang"
+    },
+    {
+      "name": "QA",
+      "description": "Publication QA gates (READY requires score ≥95 AND zero blocking failures)"
+    },
+    {
+      "name": "Translation Memory",
+      "description": "Approved TM search and human-review-based proposal workflow (no auto-approval)"
+    },
+    {
+      "name": "Git Staging",
+      "description": "Staging-only Git integration (push disabled by default, no auto-merge, no production deploy)"
+    }
+  ]
+}
