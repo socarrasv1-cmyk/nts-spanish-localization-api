@@ -1,9 +1,11 @@
 {
   "url_mappings": [
     {
+      "source_url": "/services/break-bulk-transport.php",
       "english_url": "/services/break-bulk-transport.php",
       "spanish_url": "/es/servicios/transporte-de-carga-fraccionada.php",
-      "site_id": "nts-main",
+      "site_id": "het-main",
+      "approved": true,
       "status": "approved"
     }
   ]
