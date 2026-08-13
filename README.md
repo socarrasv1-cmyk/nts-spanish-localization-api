@@ -1,8 +1,23 @@
-# NTS Localization API V2.2
+# NTS Spanish Translator — Blueprint V3 API
 
-FastAPI backend for NTS Spanish Intelligence Hub — Production-grade localization validation, Translation Memory approval workflow, and staging-only Git integration.
+FastAPI backend for the NTS Spanish Translator Blueprint V3 architecture:
+provenance-aware localization jobs, immutable artifacts, deterministic QA,
+auditable evidence, human-governed release packaging, and backward-compatible
+V2.2 routes.
 
 ## ✨ Features
+
+### Blueprint V3 control plane
+- ✅ Exact source/build/schema/validator/knowledge provenance
+- ✅ Fail-closed knowledge manifest and production-promotion gate
+- ✅ Approved, site-specific URL mapping before localization begins
+- ✅ Immutable source and draft artifacts with SHA-256 identities
+- ✅ Auditable state transitions and validation evidence
+- ✅ Coverage, factual parity, site isolation, prompt-injection-as-data, and pSEO CSV validation
+- ✅ Mandatory human visual review before `READY`
+- ✅ Evidence packaging restricted to verified provenance
+- ✅ Positive, negative, and adversarial regression suite
+- ✅ Separate staging contract with no automatic merge or production deployment
 
 ### Core Localization
 - ✅ Bearer API-key authentication (all endpoints except `/healthz`)
@@ -122,6 +137,11 @@ curl -H "Authorization: Bearer your-secret-key-here" http://localhost:8000/v2/si
 - `NTS_API_KEY` — Bearer token for API authentication
 
 ### Configuration (Non-Secret)
+- `NTS_API_VERSION=3.0.0` — Reported Blueprint V3 API version
+- `NTS_ENVIRONMENT=development` — Runtime environment identity
+- `NTS_GIT_BRANCH` / `NTS_GIT_COMMIT` — Exact deployed-source provenance
+- `NTS_PROVENANCE_VERIFIED=false` — Release gate; true only for a verified `v3` build
+- `NTS_KNOWLEDGE_MANIFEST=/app/knowledge/manifest-v3.json` — Versioned knowledge manifest
 - `NTS_ARTIFACT_TTL_HOURS=168` — Artifact retention time (default: 7 days)
 - `NTS_MAX_BODY_BYTES=95000` — Request body limit compatible with GPT Actions
 - `NTS_RATE_LIMIT_PER_MINUTE=120` — Per-credential or per-client request limit
@@ -143,6 +163,25 @@ curl -H "Authorization: Bearer your-secret-key-here" http://localhost:8000/v2/si
 
 ### Health & Metadata
 - `GET /healthz` — Health check (no auth required)
+
+### Blueprint V3
+- `GET /v3/system/provenance` — Exact deployed-source and component provenance
+- `GET /v3/system/capabilities` — Supported modes, limits, and governance boundaries
+- `GET /v3/knowledge/manifest` — Knowledge versions and release blockers
+- `POST /v3/jobs` — Create a governed localization job
+- `POST /v3/jobs/{id}/source` — Lock the authoritative English source
+- `POST /v3/jobs/{id}/draft` — Store an immutable Spanish draft
+- `POST /v3/jobs/{id}/qa` — Run the full V3 validation and human-review gate
+- `POST /v3/jobs/{id}/qa/coverage` — Run eligible-string coverage QA
+- `POST /v3/jobs/{id}/qa/facts` — Run factual and numerical parity QA
+- `POST /v3/jobs/{id}/qa/csv` — Run the pSEO CSV contract
+- `GET /v3/jobs/{id}/evidence` — Retrieve job, artifact, event, and provenance evidence
+- `POST /v3/regression/run` — Run deterministic positive, negative, and adversarial fixtures
+- `POST /v3/evidence-packages` — Package a READY job only from verified provenance
+
+The staging GPT Action contract is
+`NTS-LOCALIZATION-ACTIONS-OPENAPI-V3-STAGING.json`. The deployment and
+certification procedure is in `docs/V3-IMPLEMENTATION.md`.
 
 ### Sites
 - `GET /v2/sites` — List verified NTS sites
@@ -439,24 +478,18 @@ To check pending proposals:
 
 ## Version
 
-**NTS Localization API V2.1**
+**NTS Spanish Translator Blueprint V3 — API 3.0.0**
 
 Released: 2026-08-13
 
-### What's New in V2.1
-- ✨ Translation Memory approval workflow
-- ✨ Git staging for branch-based translation workflow
-- ✨ Comprehensive OpenAPI schema for GPT Actions
-- ✨ Render Blueprint deployment configuration
-- ✨ Production-grade test suite
-- ✨ Cross-site data isolation validators
-- ✨ Staging-only safety enforcement
+The V2.2 API routes remain available as a backward-compatible contract while
+the Blueprint V3 staging service is certified.
 
 ---
 
 ## License
 
-Proprietary — NTS Spanish Intelligence Hub
+Proprietary — NTS Spanish Translator
 
 ---
 

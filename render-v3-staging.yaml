@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: nts-spanish-localization-api-v3-staging
+    runtime: docker
+    region: oregon
+    plan: starter
+    branch: v3
+    healthCheckPath: /healthz
+    envVars:
+      - key: NTS_API_KEY
+        sync: false
+      - key: NTS_API_VERSION
+        value: '3.0.0'
+      - key: NTS_ENVIRONMENT
+        value: staging
+      - key: NTS_GIT_BRANCH
+        value: v3
+      - key: NTS_PROVENANCE_VERIFIED
+        value: 'false'
+      - key: NTS_KNOWLEDGE_MANIFEST
+        value: /app/knowledge/manifest-v3.json
+      - key: NTS_ARTIFACT_TTL_HOURS
+        value: '168'
+      - key: NTS_MAX_BODY_BYTES
+        value: '95000'
+      - key: NTS_RATE_LIMIT_PER_MINUTE
+        value: '120'
+      - key: NTS_DATA_DIR
+        value: /var/data
+      - key: NTS_GIT_REPO_PATH
+        value: /var/data/git-repo
+      - key: NTS_GIT_PUSH_ENABLED
+        value: 'false'
+    dockerfilePath: Dockerfile
+    disk:
+      name: nts-v3-staging-data
+      mountPath: /var/data
+      sizeGB: 1
+
