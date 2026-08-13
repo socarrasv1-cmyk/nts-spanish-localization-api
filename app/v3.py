@@ -7,11 +7,12 @@ import os
 from pathlib import Path
 import subprocess
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlsplit
 import uuid
 
-from fastapi import APIRouter, Header, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Security
 
-from app.security import verify_bearer_token
+from app.security import verify_v3_bearer_token
 from app.store import store
 from app.validators import (
     ValidationResult,
@@ -38,12 +39,32 @@ from app.validators_v3 import (
 V3_API_VERSION = "3.0.0"
 V3_SCHEMA_VERSION = "3.0.0"
 STARTED_AT = datetime.now(timezone.utc).isoformat()
-router = APIRouter(prefix="/v3")
+router = APIRouter(prefix="/v3", dependencies=[Security(verify_v3_bearer_token)])
 
 SITE_ID_ALIASES = {
     "het": "het-main", "het-main": "het-main",
     "nts": "nts-main", "nts-main": "nts-main",
+    "stt": "stt-main", "stt-main": "stt-main",
+    "semitruck": "stt-main", "semitrucktransport.com": "stt-main",
 }
+SITE_PROFILES = {
+    "stt-main": {
+        "site_id": "stt-main",
+        "brand_name": "SemiTruckTransport.com",
+        "domains": ["semitrucktransport.com", "www.semitrucktransport.com"],
+        "source_locale": "en-US",
+        "target_locale": "es-US",
+        "status": "verified",
+    },
+}
+DEFAULT_URL_MAPPINGS = [{
+    "site_id": "stt-main",
+    "source_url": "/",
+    "spanish_url": "/es",
+    "approved": True,
+    "status": "approved",
+    "approved_by": "published-hreflang",
+}]
 ALLOWED_MODES = {"strict_mirror", "seo_localization", "content_optimization", "audit", "csv_pseo"}
 TERMINAL_STATES = {"PACKAGED", "CLOSED"}
 
@@ -70,6 +91,25 @@ def _required(payload: Dict[str, Any], name: str) -> Any:
 def _normalize_site_id(site_id: str) -> str:
     normalized = (site_id or "").strip().casefold()
     return SITE_ID_ALIASES.get(normalized, normalized)
+
+
+def _source_path(site_id: str, source_url: str) -> str:
+    """Normalize a path or a same-site absolute URL without allowing site leakage."""
+    value = (source_url or "").strip()
+    parsed = urlsplit(value)
+    if parsed.scheme or parsed.netloc:
+        if parsed.scheme.casefold() != "https" or not parsed.netloc:
+            raise HTTPException(status_code=422, detail="source_url must use HTTPS")
+        profile = SITE_PROFILES.get(_normalize_site_id(site_id))
+        allowed_domains = set(profile.get("domains", [])) if profile else set()
+        if parsed.hostname not in allowed_domains:
+            raise HTTPException(status_code=422, detail="source_url domain does not match the verified site profile")
+        if parsed.query or parsed.fragment:
+            raise HTTPException(status_code=422, detail="source_url must not contain a query or fragment")
+        return parsed.path or "/"
+    if not value.startswith("/") or "?" in value or "#" in value:
+        raise HTTPException(status_code=422, detail="source_url must be a clean site-relative path or verified HTTPS URL")
+    return value
 
 
 def _sha256(content: str) -> str:
@@ -165,15 +205,16 @@ def system_provenance() -> Dict[str, Any]:
 
 def _mappings() -> List[Dict[str, Any]]:
     data = store.load("url_map")
-    return list(data.get("url_mappings") or data.get("mappings") or [])
+    return list(data.get("url_mappings") or data.get("mappings") or []) + DEFAULT_URL_MAPPINGS
 
 
 def _approved_mapping(site_id: str, source_url: str) -> Optional[Dict[str, Any]]:
     requested_site = _normalize_site_id(site_id)
+    requested_source = _source_path(requested_site, source_url)
     for mapping in _mappings():
         mapping_source = mapping.get("source_url") or mapping.get("english_url")
         approved = mapping.get("approved") is True or str(mapping.get("status", "")).casefold() == "approved"
-        if _normalize_site_id(mapping.get("site_id", "")) == requested_site and mapping_source == source_url and approved:
+        if _normalize_site_id(mapping.get("site_id", "")) == requested_site and mapping_source == requested_source and approved:
             return {
                 "site_id": requested_site,
                 "source_url": mapping_source,
@@ -285,14 +326,12 @@ def _events_for_job(job_id: str) -> List[Dict[str, Any]]:
 
 
 @router.get("/system/provenance", operation_id="getSystemProvenance")
-async def get_system_provenance(authorization: Optional[str] = Header(None)):
-    verify_bearer_token(authorization)
+async def get_system_provenance():
     return _response(system_provenance())
 
 
 @router.get("/system/capabilities", operation_id="getCapabilitiesManifest")
-async def get_capabilities_manifest(authorization: Optional[str] = Header(None)):
-    verify_bearer_token(authorization)
+async def get_capabilities_manifest():
     return _response({
         "api_version": V3_API_VERSION,
         "modes": sorted(ALLOWED_MODES),
@@ -303,7 +342,7 @@ async def get_capabilities_manifest(authorization: Optional[str] = Header(None))
         },
         "public_read_operations": [
             "getSystemProvenance", "getCapabilitiesManifest", "getKnowledgeManifest",
-            "listReadyJobsV3", "getJobEvidence",
+            "resolveSiteV3", "listReadyJobsV3", "getJobEvidence",
         ],
         "protected_write_operations": [
             "createLocalizationJobV3", "importSourceArtifactV3", "createSpanishDraftV3",
@@ -316,18 +355,37 @@ async def get_capabilities_manifest(authorization: Optional[str] = Header(None))
 
 
 @router.get("/knowledge/manifest", operation_id="getKnowledgeManifest")
-async def get_knowledge_manifest(authorization: Optional[str] = Header(None)):
-    verify_bearer_token(authorization)
+async def get_knowledge_manifest():
     return _response(_knowledge_manifest())
+
+
+@router.get("/sites/resolve", operation_id="resolveSiteV3")
+async def resolve_site_v3(url: str = Query(..., min_length=1)):
+    """Resolve an approved public URL to its isolated V3 site profile."""
+    parsed = urlsplit(url.strip())
+    if parsed.scheme.casefold() != "https" or not parsed.hostname:
+        raise HTTPException(status_code=422, detail="url must be an absolute HTTPS URL")
+    site_id = next((
+        candidate_id for candidate_id, profile in SITE_PROFILES.items()
+        if parsed.hostname in profile.get("domains", [])
+    ), None)
+    if not site_id:
+        raise HTTPException(status_code=404, detail="No verified V3 site profile found for this domain")
+    source_url = _source_path(site_id, url)
+    mapping = _approved_mapping(site_id, source_url)
+    return _response({
+        "site": SITE_PROFILES[site_id],
+        "source_url": source_url,
+        "approved_url_mapping": mapping,
+        "intake_status": "URL_RESOLVED" if mapping else "MAPPING_REQUIRED",
+    })
 
 
 @router.get("/jobs/ready", operation_id="listReadyJobsV3")
 async def list_ready_jobs_v3(
     limit: int = Query(20, ge=1, le=100),
-    authorization: Optional[str] = Header(None),
 ):
     """Return exact UUIDs for jobs that currently qualify for packaging."""
-    verify_bearer_token(authorization)
     jobs = [
         job for job in store.load("v3_jobs").get("jobs", {}).values()
         if job.get("state") == "READY"
@@ -351,10 +409,9 @@ async def list_ready_jobs_v3(
 
 
 @router.post("/jobs", status_code=201, operation_id="createLocalizationJobV3")
-async def create_localization_job_v3(payload: Dict[str, Any], authorization: Optional[str] = Header(None)):
-    verify_bearer_token(authorization)
+async def create_localization_job_v3(payload: Dict[str, Any]):
     site_id = _normalize_site_id(str(_required(payload, "site_id")))
-    source_url = str(_required(payload, "source_url")).strip()
+    source_url = _source_path(site_id, str(_required(payload, "source_url")))
     mode = str(payload.get("mode", "strict_mirror")).casefold()
     if mode not in ALLOWED_MODES:
         raise HTTPException(status_code=422, detail=f"mode must be one of {sorted(ALLOWED_MODES)}")
@@ -381,8 +438,7 @@ async def create_localization_job_v3(payload: Dict[str, Any], authorization: Opt
 
 
 @router.post("/jobs/{job_id}/source", status_code=201, operation_id="importSourceArtifactV3")
-async def import_source_artifact_v3(job_id: str, payload: Dict[str, Any], authorization: Optional[str] = Header(None)):
-    verify_bearer_token(authorization)
+async def import_source_artifact_v3(job_id: str, payload: Dict[str, Any]):
     job = _get_job(job_id)
     if job.get("source_artifact_id"):
         raise HTTPException(status_code=409, detail="The immutable source artifact is already locked")
@@ -394,8 +450,7 @@ async def import_source_artifact_v3(job_id: str, payload: Dict[str, Any], author
 
 
 @router.post("/jobs/{job_id}/draft", status_code=201, operation_id="createSpanishDraftV3")
-async def create_spanish_draft_v3(job_id: str, payload: Dict[str, Any], authorization: Optional[str] = Header(None)):
-    verify_bearer_token(authorization)
+async def create_spanish_draft_v3(job_id: str, payload: Dict[str, Any]):
     job = _get_job(job_id)
     if not job.get("source_artifact_id"):
         raise HTTPException(status_code=409, detail="Lock the authoritative source before creating a draft")
@@ -409,8 +464,7 @@ async def create_spanish_draft_v3(job_id: str, payload: Dict[str, Any], authoriz
 
 
 @router.post("/jobs/{job_id}/qa/coverage", operation_id="runCoverageQA")
-async def run_coverage_qa(job_id: str, authorization: Optional[str] = Header(None)):
-    verify_bearer_token(authorization)
+async def run_coverage_qa(job_id: str):
     job = _get_job(job_id)
     source, target = _job_contents(job)
     result = _check_payload(validate_coverage(source, target))
@@ -421,8 +475,7 @@ async def run_coverage_qa(job_id: str, authorization: Optional[str] = Header(Non
 
 
 @router.post("/jobs/{job_id}/qa/facts", operation_id="runFactsParityQA")
-async def run_facts_parity_qa(job_id: str, authorization: Optional[str] = Header(None)):
-    verify_bearer_token(authorization)
+async def run_facts_parity_qa(job_id: str):
     job = _get_job(job_id)
     source, target = _job_contents(job)
     result = _check_payload(validate_facts_parity(source, target))
@@ -433,8 +486,7 @@ async def run_facts_parity_qa(job_id: str, authorization: Optional[str] = Header
 
 
 @router.post("/jobs/{job_id}/qa/csv", operation_id="runCSVContractQA")
-async def run_csv_contract_qa(job_id: str, payload: Optional[Dict[str, Any]] = None, authorization: Optional[str] = Header(None)):
-    verify_bearer_token(authorization)
+async def run_csv_contract_qa(job_id: str, payload: Optional[Dict[str, Any]] = None):
     job = _get_job(job_id)
     _source, target = _job_contents(job)
     request_data = payload or {}
@@ -446,8 +498,7 @@ async def run_csv_contract_qa(job_id: str, payload: Optional[Dict[str, Any]] = N
 
 
 @router.post("/jobs/{job_id}/qa", operation_id="runJobQAV3")
-async def run_job_qa_v3(job_id: str, payload: Optional[Dict[str, Any]] = None, authorization: Optional[str] = Header(None)):
-    verify_bearer_token(authorization)
+async def run_job_qa_v3(job_id: str, payload: Optional[Dict[str, Any]] = None):
     job = _get_job(job_id)
     source, target = _job_contents(job)
     request_data = payload or {}
@@ -512,8 +563,7 @@ async def run_job_qa_v3(job_id: str, payload: Optional[Dict[str, Any]] = None, a
 
 
 @router.get("/jobs/{job_id}/evidence", operation_id="getJobEvidence")
-async def get_job_evidence(job_id: str, authorization: Optional[str] = Header(None)):
-    verify_bearer_token(authorization)
+async def get_job_evidence(job_id: str):
     job = _get_job(job_id)
     artifacts = []
     for artifact_id in (job.get("source_artifact_id"), job.get("draft_artifact_id")):
@@ -527,8 +577,7 @@ async def get_job_evidence(job_id: str, authorization: Optional[str] = Header(No
 
 
 @router.post("/regression/run", operation_id="runRegressionSuite")
-async def run_regression_suite(authorization: Optional[str] = Header(None)):
-    verify_bearer_token(authorization)
+async def run_regression_suite():
     fixtures = [
         ("coverage-positive", "PASS", validate_coverage("<h1>Get a Quote</h1>", "<h1>Obtenga una cotización</h1>")),
         ("coverage-negative", "FAIL", validate_coverage("<h1>Get a Quote</h1>", "<h1>Get a Quote</h1>")),
@@ -562,8 +611,7 @@ async def run_regression_suite(authorization: Optional[str] = Header(None)):
 
 
 @router.post("/evidence-packages", status_code=201, operation_id="createEvidencePackage")
-async def create_evidence_package(payload: Dict[str, Any], authorization: Optional[str] = Header(None)):
-    verify_bearer_token(authorization)
+async def create_evidence_package(payload: Dict[str, Any]):
     job_id = str(_required(payload, "job_id"))
     try:
         parsed_job_id = str(uuid.UUID(job_id))

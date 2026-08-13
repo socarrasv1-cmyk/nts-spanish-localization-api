@@ -19,7 +19,7 @@ MAX_BODY_BYTES = int(os.getenv("NTS_MAX_BODY_BYTES", "95000"))
 RATE_LIMIT_PER_MINUTE = int(os.getenv("NTS_RATE_LIMIT_PER_MINUTE", "120"))
 
 app = FastAPI(
-    title="NTS Spanish Translator Blueprint V3 API",
+    title="Socarrasv1 Spanish Translator Blueprint V3 API",
     version=V3_API_VERSION,
     description=(
         "Blueprint V3-only localization orchestration, deterministic validation, "
@@ -93,7 +93,7 @@ async def v3_guardrails(request: Request, call_next):
 async def healthz():
     return {
         "status": "ok",
-        "service": "nts-spanish-translator-blueprint-v3",
+        "service": "socarrasv1-spanish-translator-blueprint-v3",
         "version": V3_API_VERSION,
         "runtime_contract": "V3_ONLY",
     }

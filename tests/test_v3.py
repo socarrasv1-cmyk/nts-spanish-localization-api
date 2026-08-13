@@ -306,15 +306,68 @@ def test_v3_action_contract_matches_routes_and_has_unique_operations():
             assert (path, method) in app_routes
             assert isinstance(operation["x-openai-isConsequential"], bool)
             operations.append(operation["operationId"])
-    assert len(operations) == len(set(operations)) == 14
+    assert len(operations) == len(set(operations)) == 15
 
 
 def test_v3_only_runtime_exposes_no_legacy_routes():
     schema = v3_only_app.openapi()
     assert schema["info"]["version"] == "3.0.0"
-    assert schema["info"]["title"] == "NTS Spanish Translator Blueprint V3 API"
+    assert schema["info"]["title"] == "Socarrasv1 Spanish Translator Blueprint V3 API"
     assert all(path == "/healthz" or path.startswith("/v3/") for path in schema["paths"])
     assert not any(path.startswith("/v2/") for path in schema["paths"])
+    assert schema["components"]["securitySchemes"]["bearerAuth"]["scheme"] == "bearer"
+    for path, methods in schema["paths"].items():
+        if path == "/healthz":
+            continue
+        for operation in methods.values():
+            assert {"bearerAuth": []} in operation["security"]
+            assert not any(
+                parameter.get("name") == "authorization"
+                for parameter in operation.get("parameters", [])
+            )
+
+
+def test_semitruck_site_resolver_and_homepage_intake():
+    resolved = client.get(
+        "/v3/sites/resolve",
+        headers=AUTH,
+        params={"url": "https://semitrucktransport.com/"},
+    )
+    assert resolved.status_code == 200, resolved.text
+    data = resolved.json()["data"]
+    assert data["site"]["site_id"] == "stt-main"
+    assert data["source_url"] == "/"
+    assert data["approved_url_mapping"]["spanish_url"] == "/es"
+    assert data["intake_status"] == "URL_RESOLVED"
+
+    created = client.post("/v3/jobs", headers=AUTH, json={
+        "site_id": "semitruck",
+        "source_url": "https://semitrucktransport.com/",
+        "mode": "strict_mirror",
+    })
+    assert created.status_code == 201, created.text
+    job = created.json()["data"]
+    assert job["site_id"] == "stt-main"
+    assert job["source_url"] == "/"
+    assert job["target_url"] == "/es"
+    assert job["state"] == "URL_RESOLVED"
+
+
+def test_semitruck_intake_blocks_cross_site_and_unapproved_paths():
+    cross_site = client.post("/v3/jobs", headers=AUTH, json={
+        "site_id": "stt-main",
+        "source_url": "https://example.com/",
+    })
+    assert cross_site.status_code == 422
+    assert "domain" in cross_site.json()["error"]["message"]
+
+    unresolved = client.get(
+        "/v3/sites/resolve",
+        headers=AUTH,
+        params={"url": "https://semitrucktransport.com/services"},
+    )
+    assert unresolved.status_code == 200
+    assert unresolved.json()["data"]["intake_status"] == "MAPPING_REQUIRED"
 
 
 def test_v3_validator_evidence_never_reports_legacy_bundle_version():

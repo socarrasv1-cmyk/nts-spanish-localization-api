@@ -1,14 +1,14 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "NTS Spanish Translator Blueprint V3 API",
+    "title": "Socarrasv1 Spanish Translator Blueprint V3 API",
     "version": "3.0.0",
     "description": "Blueprint V3 architecture for governed Spanish localization jobs, immutable artifacts, deterministic validation evidence, regression certification, and human-governed packaging."
   },
   "servers": [
     {
       "url": "https://nts-spanish-localization-api-v3-staging.onrender.com",
-      "description": "NTS Spanish Translator Blueprint V3 service"
+      "description": "Socarrasv1 Spanish Translator Blueprint V3 service"
     }
   ],
   "security": [{"bearerAuth": []}],
@@ -88,6 +88,22 @@
         "summary": "Get active V3 knowledge versions and migration blockers",
         "x-openai-isConsequential": false,
         "responses": {"200": {"description": "Knowledge manifest", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Envelope"}}}}}
+      }
+    },
+    "/v3/sites/resolve": {
+      "get": {
+        "operationId": "resolveSiteV3",
+        "summary": "Resolve a public HTTPS URL to a verified V3 site profile and approved Spanish URL mapping",
+        "x-openai-isConsequential": false,
+        "parameters": [
+          {
+            "name": "url",
+            "in": "query",
+            "required": true,
+            "schema": {"type": "string", "format": "uri"}
+          }
+        ],
+        "responses": {"200": {"description": "Verified site resolution", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Envelope"}}}}}
       }
     },
     "/v3/jobs": {
