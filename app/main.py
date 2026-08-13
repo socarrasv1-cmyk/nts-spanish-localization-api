@@ -541,6 +541,7 @@ async def tm_search(
     }
 
 
+@app.post("/v2/tm/propose", status_code=201)
 @app.post("/v2/tm/proposals")
 async def tm_propose(
     request: Dict[str, Any],
@@ -551,7 +552,7 @@ async def tm_propose(
     proposal = tm_service.propose(
         request.get("source"),
         request.get("translation"),
-        request.get("site_id"),
+        normalize_site_id(request.get("site_id")) if request.get("site_id") else None,
         request.get("component"),
         request.get("context"),
         request.get("locale", "es-US"),
@@ -579,19 +580,21 @@ async def tm_proposals(
     }
 
 
+@app.post("/v2/tm/approve/{proposal_id}")
 @app.post("/v2/tm/proposals/{proposal_id}/approve")
 async def tm_approve(
     proposal_id: str,
-    request: Dict[str, Any],
+    request: Optional[Dict[str, Any]] = None,
     authorization: Optional[str] = Header(None)
 ):
     """Approve a translation-memory proposal."""
     verify_bearer_token(authorization)
     try:
+        request_data = request or {}
         proposal = tm_service.approve_proposal(
             proposal_id,
-            request.get("reviewer"),
-            request.get("reason")
+            request_data.get("reviewer", "NTS Spanish Translator"),
+            request_data.get("reason")
         )
         return {
             "ok": True,
@@ -605,19 +608,21 @@ async def tm_approve(
         )
 
 
+@app.post("/v2/tm/reject/{proposal_id}")
 @app.post("/v2/tm/proposals/{proposal_id}/reject")
 async def tm_reject(
     proposal_id: str,
-    request: Dict[str, Any],
+    request: Optional[Dict[str, Any]] = None,
     authorization: Optional[str] = Header(None)
 ):
     """Reject a translation-memory proposal."""
     verify_bearer_token(authorization)
     try:
+        request_data = request or {}
         proposal = tm_service.reject_proposal(
             proposal_id,
-            request.get("reviewer"),
-            request.get("reason")
+            request_data.get("reviewer", "NTS Spanish Translator"),
+            request_data.get("reason")
         )
         return {
             "ok": True,
