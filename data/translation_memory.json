@@ -1,4 +1,15 @@
 {
-  "entries": [],
+  "entries": [
+    {
+      "source": "Start Quote",
+      "translation": "Iniciar cotización",
+      "site_id": "het-main",
+      "component": "CTA",
+      "context": "Primary quote call-to-action",
+      "locale": "es-US",
+      "approved": true,
+      "approved_by": "system-seed"
+    }
+  ],
   "proposals": []
 }
