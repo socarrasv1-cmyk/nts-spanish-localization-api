@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: nts-localization-api
+    runtime: docker
+    region: oregon
+    plan: starter
+    healthCheckPath: /healthz
+    envVars:
+      - key: NTS_API_KEY
+        scope: run
+        isFile: false
+      - key: NTS_ARTIFACT_TTL_HOURS
+        value: '168'
+      - key: NTS_DATA_DIR
+        value: /var/data
+      - key: NTS_GIT_REPO_PATH
+        value: /var/data/git-repo
+      - key: NTS_GIT_REMOTE_NAME
+        value: origin
+      - key: NTS_GIT_DEFAULT_BASE_BRANCH
+        value: main
+      - key: NTS_GIT_PUSH_ENABLED
+        value: 'false'
+      - key: NTS_GIT_PROVIDER
+        value: github
+    dockerfilePath: Dockerfile
+    disk:
+      name: nts-data
+      mountPath: /var/data
+      sizeGB: 1
