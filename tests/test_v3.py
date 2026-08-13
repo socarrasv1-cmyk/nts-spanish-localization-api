@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import _rate_windows, app
+from app.v3_main import app as v3_only_app
 from app.store import store
 
 
@@ -192,3 +193,25 @@ def test_v3_action_contract_matches_routes_and_has_unique_operations():
             assert isinstance(operation["x-openai-isConsequential"], bool)
             operations.append(operation["operationId"])
     assert len(operations) == len(set(operations)) == 13
+
+
+def test_v3_only_runtime_exposes_no_legacy_routes():
+    schema = v3_only_app.openapi()
+    assert schema["info"]["version"] == "3.0.0"
+    assert schema["info"]["title"] == "NTS Spanish Translator Blueprint V3 API"
+    assert all(path == "/healthz" or path.startswith("/v3/") for path in schema["paths"])
+    assert not any(path.startswith("/v2/") for path in schema["paths"])
+
+
+def test_v3_validator_evidence_never_reports_legacy_bundle_version():
+    job = _create_job()
+    _lock_html_pair(job["job_id"])
+    response = client.post(f"/v3/jobs/{job['job_id']}/qa", headers=AUTH, json={
+        "visual_review_completed": True,
+        "reviewer": "release-test",
+    })
+    assert response.status_code == 200
+    checks = response.json()["data"]["checks"]
+    assert checks
+    assert {check["validator_version"] for check in checks.values()} == {"3.0.0"}
+    assert {check["metrics"]["version"] for check in checks.values()} == {"3.0.0"}

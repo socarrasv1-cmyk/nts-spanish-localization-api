@@ -260,8 +260,9 @@ def _job_contents(job: Dict[str, Any]) -> tuple[str, str]:
 
 def _check_payload(result: ValidationResult) -> Dict[str, Any]:
     payload = result.as_dict()
+    payload.setdefault("metrics", {})["version"] = V3_VALIDATOR_VERSION
     payload["executed_at"] = _now()
-    payload["validator_version"] = payload.get("metrics", {}).get("version", "unknown")
+    payload["validator_version"] = V3_VALIDATOR_VERSION
     return payload
 
 

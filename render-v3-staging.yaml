@@ -32,8 +32,8 @@ services:
       - key: NTS_GIT_PUSH_ENABLED
         value: 'false'
     dockerfilePath: Dockerfile
+    dockerCommand: uvicorn app.v3_main:app --host 0.0.0.0 --port 8000
     disk:
       name: nts-v3-staging-data
       mountPath: /var/data
       sizeGB: 1
-
