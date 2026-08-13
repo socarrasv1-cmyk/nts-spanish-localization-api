@@ -3,7 +3,10 @@
 **Owner:** Javier Socarras  
 **Version:** 3.0.0  
 **Locale:** `es-US`  
-**Status:** Candidate until Render provenance, knowledge migration, regression, staging, and human review are complete.
+**Status:** Verified Blueprint V3 control baseline. Runtime provenance, validator bundle,
+knowledge manifest, staging regression, and public GPT Action integration are verified.
+Individual jobs remain evidence-gated and cannot be READY or PACKAGED without their
+own deterministic QA and completed human visual review.
 
 ## Mission
 
@@ -64,6 +67,5 @@ Production promotion is allowed only when:
 - the V3 knowledge manifest is fully active and checksummed;
 - positive, negative, boundary, adversarial, restart, and persistence tests pass;
 - a separate staging Render service has passed a page-family pilot and a 10-page mixed pilot;
-- rollback to the verified 2.2 baseline is documented; and
+- rollback to the last verified Blueprint V3 release is documented; and
 - Javier Socarras explicitly approves promotion.
-

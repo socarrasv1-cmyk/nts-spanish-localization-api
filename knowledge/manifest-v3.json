@@ -4,10 +4,10 @@
   "owner": "Javier Socarras",
   "status_policy": "Every module must be active, present, and checksum-valid.",
   "modules": [
-    {"id":"blueprint-control","file":"knowledge/NTS-SPANISH-TRANSLATOR-BLUEPRINT-V3.md","version":"3.0.0","status":"active","sha256":"0349edfe76518b8c9d90328175b4205345dc1fec53d3b0ff2e305d1fe61b794b","dependencies":[]},
+    {"id":"blueprint-control","file":"knowledge/NTS-SPANISH-TRANSLATOR-BLUEPRINT-V3.md","version":"3.0.0","status":"active","sha256":"00330fb1e09081052943e8064a907df2faceac343a20d626e6f27a7ca4c1085c","dependencies":[]},
     {"id":"language-terminology-tm","file":"knowledge/KB-A-V3-LANGUAGE-TERMINOLOGY-TM.md","version":"3.0.0","status":"active","sha256":"7320fa1ebd4d2def60535b3a20980e05f0aec5b6cd7a62131ccb425ed159e26c","dependencies":["blueprint-control"]},
     {"id":"technical-seo-url-schema-php","file":"knowledge/KB-B-V3-TECHNICAL-SEO-URL-SCHEMA-PHP.md","version":"3.0.0","status":"active","sha256":"58030f9140b20900bc64910ba101cffde0ab7c0393890b5489aef3077c25b894","dependencies":["blueprint-control","language-terminology-tm"]},
-    {"id":"page-architecture-pseo-csv","file":"knowledge/KB-C-V3-PAGE-ARCHITECTURE-PSEO-CSV.md","version":"3.0.0","status":"active","sha256":"fbb51ce662b33fee4690759c69f1ce3913dee209fd70dd7fd49f5cfd6f3fba0f","dependencies":["blueprint-control","language-terminology-tm","technical-seo-url-schema-php"]},
+    {"id":"page-architecture-pseo-csv","file":"knowledge/KB-C-V3-PAGE-ARCHITECTURE-PSEO-CSV.md","version":"3.0.0","status":"active","sha256":"65312c96ec63abb08f4fe1256e3f765ce77e9940037d03df9a83cab413ea1cf0","dependencies":["blueprint-control","language-terminology-tm","technical-seo-url-schema-php"]},
     {"id":"transport-ontology-equipment-geography","file":"knowledge/KB-D-V3-TRANSPORT-ONTOLOGY-EQUIPMENT-GEOGRAPHY.md","version":"3.0.0","status":"active","sha256":"59e65657d675bbe51c839e837d0890f97176cd88c7a1325efda9f1eb67aaa4d7","dependencies":["blueprint-control","language-terminology-tm"]},
     {"id":"sites-qa-output-governance","file":"knowledge/KB-E-V3-SITES-QA-OUTPUT-GOVERNANCE.md","version":"3.0.0","status":"active","sha256":"40d8d4a4f2cb379f876fb278d9b793aaa8535e7adec9a031905b9d00fef06e9e","dependencies":["blueprint-control","language-terminology-tm","technical-seo-url-schema-php","page-architecture-pseo-csv","transport-ontology-equipment-geography"]}
   ]

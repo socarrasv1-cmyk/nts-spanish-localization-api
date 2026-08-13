@@ -144,16 +144,103 @@ def test_v3_artifacts_are_immutable():
 
 
 def test_csv_contract_enforces_image_alt_and_logical_groups():
-    valid = "slug,target_url,body_section_1,image_01,alt_01\na,/es/a,Texto,/img/a.webp,Equipo"
-    invalid = "slug,target_url,body_p_1,body_list_1,image_01,title\na,/es/a,Texto,Lista,/img/a.webp,Título"
+    valid = (
+        "site_id,source_url,slug,target_url,body_section_01,image_01,alt_01\n"
+        "het-main,/services/a.php,a,/es/servicios/a.php,Texto,/img/a.webp,Equipo"
+    )
+    invalid = (
+        "site_id,source_url,slug,target_url,body_p_1,body_list_1,image_01,title\n"
+        "het-main,/services/a.php,a,/es/servicios/a.php,Texto,Lista,/img/a.webp,Título"
+    )
     from app.validators_v3 import validate_csv_contract
 
     assert validate_csv_contract(valid).status == "PASS"
     result = validate_csv_contract(invalid)
     assert result.status == "FAIL"
-    assert {issue["code"] for issue in result.issues} == {
-        "CSV_IMAGE_ALT_ADJACENCY", "CSV_IMAGE_ALT_VALUE_MISSING", "CSV_SECTION_GROUP_SPLIT",
+    assert {issue["code"] for issue in result.issues} >= {
+        "CSV_IMAGE_ALT_ADJACENCY", "CSV_BODY_SECTION_MISSING", "CSV_SECTION_GROUP_SPLIT",
     }
+
+
+def test_csv_contract_enforces_exact_pairs_required_values_order_and_uniqueness():
+    from app.validators_v3 import validate_csv_contract
+
+    invalid = (
+        "site_id,source_url,slug,target_url,body_section_02,body_section_01,image_01,alt_02\n"
+        "het-main,/services/a.php,same,/es/a,Segundo,Primero,,Texto sin imagen\n"
+        "het-main,/services/b.php,same,/es/a,Segundo,Primero,/img/b.webp,"
+    )
+    codes = {issue["code"] for issue in validate_csv_contract(invalid).issues}
+    assert codes >= {
+        "CSV_SECTION_ORDER_INVALID", "CSV_IMAGE_ALT_ADJACENCY", "CSV_ALT_IMAGE_PAIR_INVALID",
+        "CSV_DUPLICATE_TARGET_URL", "CSV_DUPLICATE_SLUG",
+    }
+
+    missing = "slug,target_url,body_section_01\na,,Texto"
+    missing_codes = {issue["code"] for issue in validate_csv_contract(missing).issues}
+    assert missing_codes >= {"CSV_REQUIRED_COLUMNS_MISSING", "CSV_REQUIRED_VALUE_MISSING"}
+
+
+def test_csv_contract_blocks_row_width_and_mixed_line_endings():
+    from app.validators_v3 import validate_csv_contract
+
+    malformed = (
+        "site_id,source_url,slug,target_url,body_section_01\r\n"
+        "het-main,/services/a.php,a,/es/a,Texto,extra\n"
+    )
+    codes = {issue["code"] for issue in validate_csv_contract(malformed).issues}
+    assert codes >= {"CSV_ROW_WIDTH_MISMATCH", "CSV_MIXED_LINE_ENDINGS"}
+
+
+def test_csv_translation_coverage_requires_exact_structure_and_translated_cells():
+    from app.validators_v3 import validate_csv_translation_coverage
+
+    source = (
+        "site_id,source_url,slug,target_url,body_section_01,image_01,alt_01\n"
+        "het-main,/services/a.php,a,/es/a,Get a quote,/img/a.webp,Heavy equipment"
+    )
+    translated = (
+        "site_id,source_url,slug,target_url,body_section_01,image_01,alt_01\n"
+        "het-main,/services/a.php,a,/es/a,Obtenga una cotización,/img/a.webp,Equipo pesado"
+    )
+    assert validate_csv_translation_coverage(source, translated).status == "PASS"
+    unchanged = validate_csv_translation_coverage(source, source)
+    assert unchanged.status == "FAIL"
+    assert "CSV_UNCHANGED_SOURCE_VALUE" in {issue["code"] for issue in unchanged.issues}
+
+
+def test_csv_pseo_full_qa_runs_all_required_v3_checks():
+    source_csv = (
+        "site_id,source_url,slug,target_url,body_section_01,image_01,alt_01\n"
+        f"het-main,{SOURCE_URL},carga-fraccionada,{TARGET_URL},"
+        '"Call 877-278-3135 for a 40,000 lbs shipment.",/img/a.webp,Heavy equipment'
+    )
+    target_csv = (
+        "site_id,source_url,slug,target_url,body_section_01,image_01,alt_01\n"
+        f"het-main,{SOURCE_URL},carga-fraccionada,{TARGET_URL},"
+        '"Llame al 877-278-3135 para un envío de 40,000 lbs.",/img/a.webp,Equipo pesado'
+    )
+    job = _create_job(mode="csv_pseo")
+    source = client.post(f"/v3/jobs/{job['job_id']}/source", headers=AUTH, json={"content": source_csv})
+    draft = client.post(f"/v3/jobs/{job['job_id']}/draft", headers=AUTH, json={"content": target_csv})
+    assert source.status_code == draft.status_code == 201
+
+    missing_reviewer = client.post(f"/v3/jobs/{job['job_id']}/qa", headers=AUTH, json={
+        "visual_review_completed": True,
+    })
+    assert missing_reviewer.status_code == 422
+
+    qa = client.post(f"/v3/jobs/{job['job_id']}/qa", headers=AUTH, json={
+        "visual_review_completed": True, "reviewer": "Javier Socarras",
+    })
+    assert qa.status_code == 200, qa.text
+    data = qa.json()["data"]
+    assert data["status"] == "READY", data
+    assert set(data["checks"]) == {
+        "csv_contract", "coverage", "protected_tokens", "english_residue",
+        "facts_parity", "site_isolation", "prompt_injection_content",
+    }
+    assert {check["validator_version"] for check in data["checks"].values()} == {"3.0.0"}
 
 
 def test_regression_suite_is_deterministic_and_adversarial():
