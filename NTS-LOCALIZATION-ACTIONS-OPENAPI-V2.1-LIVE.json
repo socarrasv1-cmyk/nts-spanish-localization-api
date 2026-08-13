@@ -61,7 +61,11 @@
             "properties": {
               "status": {
                 "type": "string",
-                "enum": ["PASS", "FAIL", "REVIEW"]
+                "enum": [
+                  "PASS",
+                  "FAIL",
+                  "REVIEW"
+                ]
               },
               "blocking": {
                 "type": "boolean"
@@ -100,12 +104,19 @@
               },
               "status": {
                 "type": "string",
-                "enum": ["READY", "NEEDS_REVIEW", "BLOCKED"],
+                "enum": [
+                  "READY",
+                  "NEEDS_REVIEW",
+                  "BLOCKED"
+                ],
                 "description": "Publication status. READY: score >= 95 AND zero blockers. BLOCKED: any blocking failure."
               },
               "blocking_issues": {
                 "type": "array",
-                "description": "List of blocking issues that prevent publication"
+                "description": "List of blocking issues that prevent publication",
+                "items": {
+                  "type": "string"
+                }
               },
               "checks": {
                 "type": "object",
@@ -169,7 +180,11 @@
           },
           "status": {
             "type": "string",
-            "enum": ["proposed", "approved", "rejected"],
+            "enum": [
+              "proposed",
+              "approved",
+              "rejected"
+            ],
             "description": "Proposal workflow status"
           },
           "site_id": {
@@ -263,7 +278,9 @@
         "summary": "Health check",
         "description": "Verify API is responding. No authentication required.",
         "security": [],
-        "tags": ["System"],
+        "tags": [
+          "System"
+        ],
         "responses": {
           "200": {
             "description": "Service is healthy",
@@ -283,7 +300,9 @@
         "operationId": "listVerifiedSites",
         "summary": "List verified NTS sites",
         "description": "Returns all sites registered in the verified site registry.",
-        "tags": ["Sites"],
+        "tags": [
+          "Sites"
+        ],
         "responses": {
           "200": {
             "description": "List of verified sites",
@@ -314,7 +333,9 @@
         "operationId": "getApprovedURLMapping",
         "summary": "Get approved Spanish URL mapping",
         "description": "Lookup the approved Spanish target for a given source URL on a specific site.",
-        "tags": ["URL Mapping"],
+        "tags": [
+          "URL Mapping"
+        ],
         "parameters": [
           {
             "name": "site_id",
@@ -365,7 +386,9 @@
         "operationId": "validateSpanishURLCandidate",
         "summary": "Validate Spanish URL candidate",
         "description": "Test a Spanish URL candidate against structural, PHP, and other validators. Does not auto-approve—approval is a separate step.",
-        "tags": ["URL Validation"],
+        "tags": [
+          "URL Validation"
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -383,7 +406,11 @@
                     "type": "string"
                   }
                 },
-                "required": ["site_id", "source_url", "candidate"]
+                "required": [
+                  "site_id",
+                  "source_url",
+                  "candidate"
+                ]
               }
             }
           }
@@ -407,7 +434,9 @@
         "operationId": "validatePHPSyntax",
         "summary": "Validate PHP syntax",
         "description": "Run PHP lint on provided PHP code snippet.",
-        "tags": ["Validators"],
+        "tags": [
+          "Validators"
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -419,7 +448,9 @@
                     "type": "string"
                   }
                 },
-                "required": ["php_code"]
+                "required": [
+                  "php_code"
+                ]
               }
             }
           }
@@ -443,7 +474,9 @@
         "operationId": "validateDOMStructure",
         "summary": "Validate DOM structure parity",
         "description": "Check that source and target HTML have equivalent DOM structure.",
-        "tags": ["Validators"],
+        "tags": [
+          "Validators"
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -458,7 +491,10 @@
                     "type": "string"
                   }
                 },
-                "required": ["source_html", "target_html"]
+                "required": [
+                  "source_html",
+                  "target_html"
+                ]
               }
             }
           }
@@ -482,7 +518,9 @@
         "operationId": "validateProtectedTokens",
         "summary": "Validate protected tokens preserved",
         "description": "Ensure PHP variables, constants, IDs, contact info, and other protected tokens are preserved in target.",
-        "tags": ["Validators"],
+        "tags": [
+          "Validators"
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -503,7 +541,10 @@
                     }
                   }
                 },
-                "required": ["source_content", "target_content"]
+                "required": [
+                  "source_content",
+                  "target_content"
+                ]
               }
             }
           }
@@ -527,7 +568,9 @@
         "operationId": "validateEnglishResidue",
         "summary": "Validate no English residue",
         "description": "Scan target for untranslated English phrases, brand names, and other text that should be in Spanish.",
-        "tags": ["Validators"],
+        "tags": [
+          "Validators"
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -539,7 +582,9 @@
                     "type": "string"
                   }
                 },
-                "required": ["target_content"]
+                "required": [
+                  "target_content"
+                ]
               }
             }
           }
@@ -563,7 +608,9 @@
         "operationId": "validateSchema",
         "summary": "Validate JSON-LD/schema markup",
         "description": "Check schema.org markup, canonical tags, hreflang, internal links.",
-        "tags": ["Validators"],
+        "tags": [
+          "Validators"
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -575,7 +622,9 @@
                     "type": "string"
                   }
                 },
-                "required": ["html_content"]
+                "required": [
+                  "html_content"
+                ]
               }
             }
           }
@@ -599,7 +648,9 @@
         "operationId": "validateLinks",
         "summary": "Validate links and references",
         "description": "Verify all links point to valid targets and canonical/hreflang are correct.",
-        "tags": ["Validators"],
+        "tags": [
+          "Validators"
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -614,7 +665,10 @@
                     "type": "string"
                   }
                 },
-                "required": ["site_id", "html_content"]
+                "required": [
+                  "site_id",
+                  "html_content"
+                ]
               }
             }
           }
@@ -638,7 +692,9 @@
         "operationId": "runPageQA",
         "summary": "Run page QA",
         "description": "Run full QA suite on a page (PHP, structure, tokens, English, schema, links). Returns score 0-100. READY requires >= 95 AND zero blockers.",
-        "tags": ["QA"],
+        "tags": [
+          "QA"
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -662,7 +718,13 @@
                     "type": "string"
                   }
                 },
-                "required": ["site_id", "source_url", "target_url", "source_html", "target_html"]
+                "required": [
+                  "site_id",
+                  "source_url",
+                  "target_url",
+                  "source_html",
+                  "target_html"
+                ]
               }
             }
           }
@@ -686,7 +748,9 @@
         "operationId": "runBatchQA",
         "summary": "Run batch QA",
         "description": "Run QA on multiple pages. Returns aggregate score and per-page results.",
-        "tags": ["QA"],
+        "tags": [
+          "QA"
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -718,7 +782,10 @@
                     }
                   }
                 },
-                "required": ["site_id", "pages"]
+                "required": [
+                  "site_id",
+                  "pages"
+                ]
               }
             }
           }
@@ -754,7 +821,9 @@
         "operationId": "searchTranslationMemory",
         "summary": "Search Translation Memory",
         "description": "Find approved translations by source term, locale, site_id, or component.",
-        "tags": ["Translation Memory"],
+        "tags": [
+          "Translation Memory"
+        ],
         "parameters": [
           {
             "name": "source",
@@ -818,7 +887,9 @@
         "operationId": "submitTranslationProposal",
         "summary": "Submit translation proposal",
         "description": "Propose a new or updated translation. Does not auto-approve; must pass approval workflow.",
-        "tags": ["Translation Memory"],
+        "tags": [
+          "Translation Memory"
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -849,7 +920,12 @@
                     "type": "string"
                   }
                 },
-                "required": ["source", "translation", "component", "locale"]
+                "required": [
+                  "source",
+                  "translation",
+                  "component",
+                  "locale"
+                ]
               }
             }
           }
@@ -881,7 +957,9 @@
         "operationId": "approveTranslationProposal",
         "summary": "Approve translation proposal",
         "description": "Accept a proposal and add it to approved Translation Memory.",
-        "tags": ["Translation Memory"],
+        "tags": [
+          "Translation Memory"
+        ],
         "parameters": [
           {
             "name": "proposal_id",
@@ -920,7 +998,9 @@
         "operationId": "rejectTranslationProposal",
         "summary": "Reject translation proposal",
         "description": "Decline a proposal. It will not be added to Translation Memory.",
-        "tags": ["Translation Memory"],
+        "tags": [
+          "Translation Memory"
+        ],
         "parameters": [
           {
             "name": "proposal_id",
