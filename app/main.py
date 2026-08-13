@@ -498,6 +498,29 @@ async def create_package(
 # TRANSLATION MEMORY
 # ============================================================================
 
+@app.get("/v2/tm/search")
+async def tm_search_get(
+    source: str,
+    locale: str = "es-US",
+    site_id: Optional[str] = None,
+    component: Optional[str] = None,
+    authorization: Optional[str] = Header(None)
+):
+    """Search approved NTS Translation Memory using Action query parameters."""
+    verify_bearer_token(authorization)
+    results = tm_service.search(
+        source,
+        locale,
+        normalize_site_id(site_id) if site_id else None,
+        component
+    )
+    return {
+        "ok": True,
+        "request_id": str(uuid.uuid4()),
+        "data": results
+    }
+
+
 @app.post("/v2/tm/search")
 async def tm_search(
     request: Dict[str, Any],
