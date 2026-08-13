@@ -16,7 +16,7 @@ services:
       - key: NTS_GIT_BRANCH
         value: v3
       - key: NTS_PROVENANCE_VERIFIED
-        value: 'false'
+        value: 'true'
       - key: NTS_KNOWLEDGE_MANIFEST
         value: /app/knowledge/manifest-v3.json
       - key: NTS_ARTIFACT_TTL_HOURS
