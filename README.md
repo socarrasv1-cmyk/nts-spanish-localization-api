@@ -1,4 +1,4 @@
-# NTS Localization API V2.1
+# NTS Localization API V2.2
 
 FastAPI backend for NTS Spanish Intelligence Hub — Production-grade localization validation, Translation Memory approval workflow, and staging-only Git integration.
 
@@ -22,7 +22,8 @@ FastAPI backend for NTS Spanish Intelligence Hub — Production-grade localizati
 ### Quality Assurance
 - ✅ Page QA gate: requires score ≥95 AND zero blocking failures (non-negotiable)
 - ✅ Batch QA: detects silent skips, duplicate targets, blockers
-- ✅ Cross-site data isolation: prevents brand/phone/email/NAP/schema ID leakage
+- ✅ Evidence-based scoring: every READY decision includes the underlying check results and metrics
+- ✅ READY-only packaging: blocked or unreviewed jobs cannot enter a staging package
 
 ### Translation Memory
 - ✅ Approved TM search (site-specific match preferred, then global fallback)
@@ -43,6 +44,7 @@ FastAPI backend for NTS Spanish Intelligence Hub — Production-grade localizati
 - ✅ Render Blueprint configuration (render.yaml) for managed hosting
 - ✅ Persistent disk support for data retention
 - ✅ Health check endpoint (`/healthz`)
+- ✅ 95 KB request-body cap, configurable per-client rate limiting, atomic JSON writes, and constant-time token comparison
 
 ---
 
@@ -92,7 +94,7 @@ Response:
 {
   "status": "ok",
   "service": "nts-localization-api",
-  "version": "2.1.0"
+  "version": "2.2.0"
 }
 ```
 
@@ -121,10 +123,13 @@ curl -H "Authorization: Bearer your-secret-key-here" http://localhost:8000/v2/si
 
 ### Configuration (Non-Secret)
 - `NTS_ARTIFACT_TTL_HOURS=168` — Artifact retention time (default: 7 days)
+- `NTS_MAX_BODY_BYTES=95000` — Request body limit compatible with GPT Actions
+- `NTS_RATE_LIMIT_PER_MINUTE=120` — Per-credential or per-client request limit
 - `NTS_DATA_DIR=./data` — Data directory (local dev) or `/var/data` (Render)
 - `NTS_GIT_REPO_PATH=./data/git-repo` — Git staging repository path
 - `NTS_GIT_REMOTE_NAME=origin` — Git remote name
 - `NTS_GIT_DEFAULT_BASE_BRANCH=main` — Default base branch
+- `NTS_GIT_AUTHOR_NAME` / `NTS_GIT_AUTHOR_EMAIL` — Commit attribution for staging artifacts
 - `NTS_GIT_PUSH_ENABLED=false` — Git push enable/disable (false by default)
 - `NTS_GIT_PROVIDER=github` — Git provider (github)
 
@@ -142,8 +147,17 @@ curl -H "Authorization: Bearer your-secret-key-here" http://localhost:8000/v2/si
 ### Sites
 - `GET /v2/sites` — List verified NTS sites
 
+### Jobs & Immutable Artifacts
+- `POST /v2/jobs` — Create an isolated localization job
+- `GET /v2/jobs/{id}` — Retrieve job state and QA evidence
+- `DELETE /v2/jobs/{id}` — Close a staging job
+- `POST /v2/jobs/{id}/source/import` — Store the authoritative English source
+- `POST /v2/jobs/{id}/drafts` — Store a Spanish draft
+- `GET /v2/artifacts/{id}` — Retrieve immutable content, hash, metadata, and expiry
+
 ### URL Mapping
 - `POST /v2/url-map/get` — Get approved English→Spanish mapping
+- `GET /v2/url-map/approved` — GPT Action-compatible approved mapping lookup
 - `POST /v2/url-map/validate` — Validate candidate URL (not approval)
 
 ### Validators
@@ -159,8 +173,9 @@ curl -H "Authorization: Bearer your-secret-key-here" http://localhost:8000/v2/si
 - `POST /v2/qa/batch` — Batch QA (completeness check)
 
 ### Translation Memory
-- `POST /v2/tm/search` — Search approved TM
-- `POST /v2/tm/proposals` — Submit proposal for review
+- `GET /v2/tm/search` — GPT Action-compatible approved TM search
+- `POST /v2/tm/search` — Backward-compatible approved TM search
+- `POST /v2/tm/propose` or `/v2/tm/proposals` — Submit proposal for review
 - `GET /v2/tm/proposals` — List proposals by status
 - `POST /v2/tm/proposals/{id}/approve` — Approve proposal
 - `POST /v2/tm/proposals/{id}/reject` — Reject proposal
@@ -225,7 +240,7 @@ See `STAGING-DEPLOYMENT-HANDOFF.md` for complete deployment instructions.
 2. **In GPT Builder:**
    - Click "Add → Actions"
    - Fill form:
-     - **Name:** NTS Localization API V2.1
+     - **Name:** NTS Localization API V2.2
      - **Authentication Type:** API Key
      - **Auth Scheme:** Bearer
      - **Schema:** Paste OpenAPI JSON

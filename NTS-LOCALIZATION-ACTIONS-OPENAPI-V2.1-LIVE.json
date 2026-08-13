@@ -1,9 +1,9 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "NTS Localization API V2.1",
-    "version": "2.1.0",
-    "description": "FastAPI for NTS Spanish Intelligence Hub — Staging-only localization, validation, Translation Memory approval, and Git staging",
+    "title": "NTS Localization API V2.2",
+    "version": "2.2.0",
+    "description": "Evidence-based Spanish localization validation and human-governed staging for NTS. Read and validation operations never publish. Translation-memory writes require explicit review operations.",
     "contact": {
       "name": "NTS Support",
       "url": "https://www.nationwidetransportservices.com"
@@ -42,7 +42,7 @@
           },
           "version": {
             "type": "string",
-            "example": "2.1.0"
+            "example": "2.2.0"
           }
         }
       },
@@ -115,7 +115,14 @@
                 "type": "array",
                 "description": "List of blocking issues that prevent publication",
                 "items": {
-                  "type": "string"
+                  "type": "object",
+                  "properties": {
+                    "validator": {"type": "string"},
+                    "code": {"type": "string"},
+                    "severity": {"type": "string"},
+                    "message": {"type": "string"},
+                    "details": {"type": "object"}
+                  }
                 }
               },
               "checks": {
@@ -275,6 +282,7 @@
     "/healthz": {
       "get": {
         "operationId": "healthCheck",
+        "x-openai-isConsequential": false,
         "summary": "Health check",
         "description": "Verify API is responding. No authentication required.",
         "security": [],
@@ -298,6 +306,7 @@
     "/v2/sites": {
       "get": {
         "operationId": "listVerifiedSites",
+        "x-openai-isConsequential": false,
         "summary": "List verified NTS sites",
         "description": "Returns all sites registered in the verified site registry.",
         "tags": [
@@ -331,6 +340,7 @@
     "/v2/url-map/approved": {
       "get": {
         "operationId": "getApprovedURLMapping",
+        "x-openai-isConsequential": false,
         "summary": "Get approved Spanish URL mapping",
         "description": "Lookup the approved Spanish target for a given source URL on a specific site.",
         "tags": [
@@ -384,6 +394,7 @@
     "/v2/url-map/validate": {
       "post": {
         "operationId": "validateSpanishURLCandidate",
+        "x-openai-isConsequential": false,
         "summary": "Validate Spanish URL candidate",
         "description": "Test a Spanish URL candidate against structural, PHP, and other validators. Does not auto-approve—approval is a separate step.",
         "tags": [
@@ -432,6 +443,7 @@
     "/v2/validate/php": {
       "post": {
         "operationId": "validatePHPSyntax",
+        "x-openai-isConsequential": false,
         "summary": "Validate PHP syntax",
         "description": "Run PHP lint on provided PHP code snippet.",
         "tags": [
@@ -472,6 +484,7 @@
     "/v2/validate/structure": {
       "post": {
         "operationId": "validateDOMStructure",
+        "x-openai-isConsequential": false,
         "summary": "Validate DOM structure parity",
         "description": "Check that source and target HTML have equivalent DOM structure.",
         "tags": [
@@ -516,6 +529,7 @@
     "/v2/validate/protected-tokens": {
       "post": {
         "operationId": "validateProtectedTokens",
+        "x-openai-isConsequential": false,
         "summary": "Validate protected tokens preserved",
         "description": "Ensure PHP variables, constants, IDs, contact info, and other protected tokens are preserved in target.",
         "tags": [
@@ -566,6 +580,7 @@
     "/v2/validate/english-residue": {
       "post": {
         "operationId": "validateEnglishResidue",
+        "x-openai-isConsequential": false,
         "summary": "Validate no English residue",
         "description": "Scan target for untranslated English phrases, brand names, and other text that should be in Spanish.",
         "tags": [
@@ -606,6 +621,7 @@
     "/v2/validate/schema": {
       "post": {
         "operationId": "validateSchema",
+        "x-openai-isConsequential": false,
         "summary": "Validate JSON-LD/schema markup",
         "description": "Check schema.org markup, canonical tags, hreflang, internal links.",
         "tags": [
@@ -646,6 +662,7 @@
     "/v2/validate/links": {
       "post": {
         "operationId": "validateLinks",
+        "x-openai-isConsequential": false,
         "summary": "Validate links and references",
         "description": "Verify all links point to valid targets and canonical/hreflang are correct.",
         "tags": [
@@ -690,6 +707,7 @@
     "/v2/qa/page": {
       "post": {
         "operationId": "runPageQA",
+        "x-openai-isConsequential": false,
         "summary": "Run page QA",
         "description": "Run full QA suite on a page (PHP, structure, tokens, English, schema, links). Returns score 0-100. READY requires >= 95 AND zero blockers.",
         "tags": [
@@ -746,6 +764,7 @@
     "/v2/qa/batch": {
       "post": {
         "operationId": "runBatchQA",
+        "x-openai-isConsequential": false,
         "summary": "Run batch QA",
         "description": "Run QA on multiple pages. Returns aggregate score and per-page results.",
         "tags": [
@@ -819,6 +838,7 @@
     "/v2/tm/search": {
       "get": {
         "operationId": "searchTranslationMemory",
+        "x-openai-isConsequential": false,
         "summary": "Search Translation Memory",
         "description": "Find approved translations by source term, locale, site_id, or component.",
         "tags": [
@@ -828,6 +848,7 @@
           {
             "name": "source",
             "in": "query",
+            "required": true,
             "schema": {
               "type": "string"
             },
@@ -836,6 +857,7 @@
           {
             "name": "locale",
             "in": "query",
+            "required": true,
             "schema": {
               "type": "string"
             },
@@ -868,10 +890,20 @@
                     "ok": {
                       "type": "boolean"
                     },
+                    "request_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
                     "data": {
-                      "type": "array",
-                      "items": {
-                        "$ref": "#/components/schemas/TranslationMemoryEntry"
+                      "type": "object",
+                      "properties": {
+                        "matches": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/TranslationMemoryEntry"
+                          }
+                        },
+                        "count": {"type": "integer", "minimum": 0}
                       }
                     }
                   }
@@ -885,6 +917,7 @@
     "/v2/tm/propose": {
       "post": {
         "operationId": "submitTranslationProposal",
+        "x-openai-isConsequential": true,
         "summary": "Submit translation proposal",
         "description": "Propose a new or updated translation. Does not auto-approve; must pass approval workflow.",
         "tags": [
@@ -955,6 +988,7 @@
     "/v2/tm/approve/{proposal_id}": {
       "post": {
         "operationId": "approveTranslationProposal",
+        "x-openai-isConsequential": true,
         "summary": "Approve translation proposal",
         "description": "Accept a proposal and add it to approved Translation Memory.",
         "tags": [
@@ -996,6 +1030,7 @@
     "/v2/tm/reject/{proposal_id}": {
       "post": {
         "operationId": "rejectTranslationProposal",
+        "x-openai-isConsequential": true,
         "summary": "Reject translation proposal",
         "description": "Decline a proposal. It will not be added to Translation Memory.",
         "tags": [

@@ -1,6 +1,7 @@
 from fastapi import HTTPException, Header, status
 from typing import Optional
 import os
+import hmac
 
 
 def verify_bearer_token(authorization: Optional[str] = Header(None)) -> str:
@@ -31,7 +32,7 @@ def verify_bearer_token(authorization: Optional[str] = Header(None)) -> str:
         )
     
     token = parts[1]
-    if token != api_key:
+    if not hmac.compare_digest(token, api_key):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",

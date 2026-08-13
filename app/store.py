@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 import threading
+import tempfile
 
 
 class PersistentStore:
@@ -32,8 +33,20 @@ class PersistentStore:
         """Save data to persistent store."""
         with self.lock:
             filepath = self.data_dir / f"{key}.json"
-            with open(filepath, 'w') as f:
-                json.dump(data, f, indent=2)
+            # Write-then-replace prevents a process interruption from leaving a
+            # partially written JSON file behind.
+            fd, temporary_name = tempfile.mkstemp(
+                prefix=f".{key}.", suffix=".tmp", dir=self.data_dir
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2, ensure_ascii=False)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(temporary_name, filepath)
+            finally:
+                if os.path.exists(temporary_name):
+                    os.unlink(temporary_name)
     
     def get(self, key: str, field: str, default: Any = None) -> Any:
         """Get a field from stored data."""
@@ -42,9 +55,20 @@ class PersistentStore:
     
     def set(self, key: str, field: str, value: Any) -> None:
         """Set a field in stored data."""
-        data = self.load(key)
-        data[field] = value
-        self.save(key, data)
+        with self.lock:
+            data = self.load(key)
+            data[field] = value
+            self.save(key, data)
+
+    def mutate(self, key: str, mutator) -> Dict[str, Any]:
+        """Atomically load, mutate, and persist one JSON document."""
+        with self.lock:
+            data = self.load(key)
+            updated = mutator(data)
+            if updated is not None:
+                data = updated
+            self.save(key, data)
+            return data
 
 
 # Global store instance
