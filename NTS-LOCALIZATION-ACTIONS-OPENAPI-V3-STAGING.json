@@ -1,14 +1,14 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "NTS Spanish Translator API V3 — Staging",
+    "title": "NTS Spanish Translator Blueprint V3 API",
     "version": "3.0.0",
-    "description": "Provenance-aware V3 localization jobs, immutable artifacts, deterministic validation evidence, regression certification, and human-governed packaging. This schema is for a separate private staging GPT Action and must not replace the production 2.2 Action until certification."
+    "description": "Blueprint V3 architecture for governed Spanish localization jobs, immutable artifacts, deterministic validation evidence, regression certification, and human-governed packaging."
   },
   "servers": [
     {
       "url": "https://nts-spanish-localization-api-v3-staging.onrender.com",
-      "description": "Separate V3 staging service"
+      "description": "NTS Spanish Translator Blueprint V3 service"
     }
   ],
   "security": [{"bearerAuth": []}],
@@ -97,6 +97,18 @@
         "x-openai-isConsequential": true,
         "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/JobCreate"}}}},
         "responses": {"201": {"description": "Job created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Envelope"}}}}}
+      }
+    },
+    "/v3/jobs/ready": {
+      "get": {
+        "operationId": "listReadyJobsV3",
+        "summary": "List exact UUIDs for READY V3 jobs eligible for evidence packaging",
+        "description": "Call this before createEvidencePackage. Never substitute placeholders such as latest for a job UUID.",
+        "x-openai-isConsequential": false,
+        "parameters": [
+          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20}}
+        ],
+        "responses": {"200": {"description": "READY jobs", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Envelope"}}}}}
       }
     },
     "/v3/jobs/{job_id}/source": {

@@ -9,7 +9,7 @@ import subprocess
 from typing import Any, Dict, List, Optional
 import uuid
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
 
 from app.security import verify_bearer_token
 from app.store import store
@@ -300,7 +300,8 @@ async def get_capabilities_manifest(authorization: Optional[str] = Header(None))
             "rate_limit_per_minute": int(os.getenv("NTS_RATE_LIMIT_PER_MINUTE", "120")),
         },
         "public_read_operations": [
-            "getSystemProvenance", "getCapabilitiesManifest", "getKnowledgeManifest", "getJobEvidence",
+            "getSystemProvenance", "getCapabilitiesManifest", "getKnowledgeManifest",
+            "listReadyJobsV3", "getJobEvidence",
         ],
         "protected_write_operations": [
             "createLocalizationJobV3", "importSourceArtifactV3", "createSpanishDraftV3",
@@ -316,6 +317,35 @@ async def get_capabilities_manifest(authorization: Optional[str] = Header(None))
 async def get_knowledge_manifest(authorization: Optional[str] = Header(None)):
     verify_bearer_token(authorization)
     return _response(_knowledge_manifest())
+
+
+@router.get("/jobs/ready", operation_id="listReadyJobsV3")
+async def list_ready_jobs_v3(
+    limit: int = Query(20, ge=1, le=100),
+    authorization: Optional[str] = Header(None),
+):
+    """Return exact UUIDs for jobs that currently qualify for packaging."""
+    verify_bearer_token(authorization)
+    jobs = [
+        job for job in store.load("v3_jobs").get("jobs", {}).values()
+        if job.get("state") == "READY"
+    ]
+    jobs.sort(key=lambda job: str(job.get("updated_at", "")), reverse=True)
+    selected = jobs[:limit]
+    return _response({
+        "count": len(selected),
+        "jobs": [{
+            "job_id": job["job_id"],
+            "site_id": job.get("site_id"),
+            "source_url": job.get("source_url"),
+            "target_url": job.get("target_url"),
+            "mode": job.get("mode"),
+            "state": job.get("state"),
+            "qa_score": job.get("qa", {}).get("score"),
+            "visual_review": job.get("visual_review"),
+            "updated_at": job.get("updated_at"),
+        } for job in selected],
+    })
 
 
 @router.post("/jobs", status_code=201, operation_id="createLocalizationJobV3")
@@ -520,6 +550,15 @@ async def run_regression_suite(authorization: Optional[str] = Header(None)):
 async def create_evidence_package(payload: Dict[str, Any], authorization: Optional[str] = Header(None)):
     verify_bearer_token(authorization)
     job_id = str(_required(payload, "job_id"))
+    try:
+        parsed_job_id = str(uuid.UUID(job_id))
+    except (ValueError, AttributeError):
+        raise HTTPException(
+            status_code=422,
+            detail="job_id must be an exact V3 UUID returned by listReadyJobsV3; placeholders such as 'latest' are forbidden",
+        )
+    if parsed_job_id != job_id.casefold():
+        raise HTTPException(status_code=422, detail="job_id must use the canonical UUID format returned by listReadyJobsV3")
     job = _get_job(job_id)
     if job.get("state") != "READY":
         raise HTTPException(status_code=409, detail="Only a READY job may be packaged")

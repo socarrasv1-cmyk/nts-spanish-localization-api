@@ -178,6 +178,33 @@ def test_packaging_requires_verified_provenance():
     assert "provenance" in package.json()["error"]["message"].lower()
 
 
+def test_ready_job_discovery_and_exact_uuid_packaging(monkeypatch):
+    assert client.get("/v3/jobs/ready", headers=AUTH).json()["data"] == {"count": 0, "jobs": []}
+
+    invalid = client.post("/v3/evidence-packages", headers=AUTH, json={"job_id": "latest"})
+    assert invalid.status_code == 422
+    assert "placeholders" in invalid.json()["error"]["message"]
+
+    job = _create_job()
+    _lock_html_pair(job["job_id"])
+    qa = client.post(f"/v3/jobs/{job['job_id']}/qa", headers=AUTH, json={
+        "visual_review_completed": True, "reviewer": "release-test",
+    })
+    assert qa.json()["data"]["status"] == "READY"
+
+    ready = client.get("/v3/jobs/ready?limit=1", headers=AUTH).json()["data"]
+    assert ready["count"] == 1
+    assert ready["jobs"][0]["job_id"] == job["job_id"]
+    assert ready["jobs"][0]["state"] == "READY"
+
+    monkeypatch.setenv("NTS_PROVENANCE_VERIFIED", "true")
+    monkeypatch.setenv("NTS_GIT_BRANCH", "v3")
+    monkeypatch.setenv("NTS_GIT_COMMIT", "a" * 40)
+    package = client.post("/v3/evidence-packages", headers=AUTH, json={"job_id": job["job_id"]})
+    assert package.status_code == 201, package.text
+    assert package.json()["data"]["job"]["state"] == "PACKAGED"
+
+
 def test_v3_action_contract_matches_routes_and_has_unique_operations():
     schema_path = Path(__file__).parents[1] / "NTS-LOCALIZATION-ACTIONS-OPENAPI-V3-STAGING.json"
     raw = schema_path.read_text(encoding="utf-8")
@@ -192,7 +219,7 @@ def test_v3_action_contract_matches_routes_and_has_unique_operations():
             assert (path, method) in app_routes
             assert isinstance(operation["x-openai-isConsequential"], bool)
             operations.append(operation["operationId"])
-    assert len(operations) == len(set(operations)) == 13
+    assert len(operations) == len(set(operations)) == 14
 
 
 def test_v3_only_runtime_exposes_no_legacy_routes():
