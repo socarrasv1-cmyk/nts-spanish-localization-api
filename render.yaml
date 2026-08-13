@@ -7,8 +7,7 @@ services:
     healthCheckPath: /healthz
     envVars:
       - key: NTS_API_KEY
-        scope: run
-        isFile: false
+        sync: false
       - key: NTS_ARTIFACT_TTL_HOURS
         value: '168'
       - key: NTS_DATA_DIR
