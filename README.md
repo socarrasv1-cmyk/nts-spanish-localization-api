@@ -38,3 +38,28 @@ Deploy this API behind HTTPS. Then paste the V2 OpenAPI schema into Add Actions 
 
 ## Translation Memory + Git staging
 This build adds approval-based Translation Memory and staging-only Git integration. It can create local branches/commits and optionally push/create a draft GitHub PR. It never auto-merges or deploys.
+
+## Durable production storage
+
+Set `DATABASE_URL` to a PostgreSQL connection string in production. The API
+creates the `nts_kv_store` table automatically and stores Translation Memory,
+proposals, approvals, and rejections there. This keeps review state available
+across Render restarts, deployments, and instance changes.
+
+Without `DATABASE_URL`, the service uses atomic JSON files under
+`NTS_DATA_DIR`. That fallback is intended for local development only because a
+normal Render container filesystem is ephemeral.
+
+After configuring production storage:
+
+1. Submit a Translation Memory proposal.
+2. Confirm it appears in `GET /v2/tm/proposals?status=proposed`.
+3. Restart the service.
+4. Confirm the same proposal still appears.
+5. Approve or reject it using its exact `proposal_id`.
+
+Run tests with:
+
+```bash
+pytest -q
+```
