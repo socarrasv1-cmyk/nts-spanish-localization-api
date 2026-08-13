@@ -1,0 +1,187 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "NTS Spanish Translator API V3 — Staging",
+    "version": "3.0.0",
+    "description": "Provenance-aware V3 localization jobs, immutable artifacts, deterministic validation evidence, regression certification, and human-governed packaging. This schema is for a separate private staging GPT Action and must not replace the production 2.2 Action until certification."
+  },
+  "servers": [
+    {
+      "url": "https://nts-spanish-localization-api-v3-staging.onrender.com",
+      "description": "Separate V3 staging service"
+    }
+  ],
+  "security": [{"bearerAuth": []}],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Private staging bearer token stored only in GPT Action authentication settings."
+      }
+    },
+    "schemas": {
+      "Envelope": {
+        "type": "object",
+        "properties": {
+          "ok": {"type": "boolean"},
+          "request_id": {"type": "string", "format": "uuid"},
+          "timestamp": {"type": "string", "format": "date-time"},
+          "data": {"type": "object", "additionalProperties": true}
+        },
+        "required": ["ok", "request_id", "timestamp", "data"]
+      },
+      "JobCreate": {
+        "type": "object",
+        "properties": {
+          "site_id": {"type": "string"},
+          "source_url": {"type": "string"},
+          "page_family": {"type": "string"},
+          "mode": {"type": "string", "enum": ["strict_mirror", "seo_localization", "content_optimization", "audit", "csv_pseo"]},
+          "locale": {"type": "string", "default": "es-US"},
+          "risk_class": {"type": "string"},
+          "actor": {"type": "string"}
+        },
+        "required": ["site_id", "source_url"]
+      },
+      "ArtifactCreate": {
+        "type": "object",
+        "properties": {
+          "content": {"type": "string"},
+          "metadata": {"type": "object", "additionalProperties": true},
+          "actor": {"type": "string"}
+        },
+        "required": ["content"]
+      },
+      "JobQA": {
+        "type": "object",
+        "properties": {
+          "visual_review_completed": {"type": "boolean", "default": false},
+          "reviewer": {"type": "string"},
+          "required_columns": {"type": "array", "items": {"type": "string"}},
+          "token_patterns": {"type": "array", "items": {"type": "string"}},
+          "actor": {"type": "string"}
+        }
+      }
+    }
+  },
+  "paths": {
+    "/v3/system/provenance": {
+      "get": {
+        "operationId": "getSystemProvenance",
+        "summary": "Get exact V3 source and build provenance",
+        "x-openai-isConsequential": false,
+        "responses": {"200": {"description": "Provenance", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Envelope"}}}}}
+      }
+    },
+    "/v3/system/capabilities": {
+      "get": {
+        "operationId": "getCapabilitiesManifest",
+        "summary": "Get V3 modes, limits, and governance boundaries",
+        "x-openai-isConsequential": false,
+        "responses": {"200": {"description": "Capabilities", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Envelope"}}}}}
+      }
+    },
+    "/v3/knowledge/manifest": {
+      "get": {
+        "operationId": "getKnowledgeManifest",
+        "summary": "Get active V3 knowledge versions and migration blockers",
+        "x-openai-isConsequential": false,
+        "responses": {"200": {"description": "Knowledge manifest", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Envelope"}}}}}
+      }
+    },
+    "/v3/jobs": {
+      "post": {
+        "operationId": "createLocalizationJobV3",
+        "summary": "Create a governed V3 localization job",
+        "x-openai-isConsequential": true,
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/JobCreate"}}}},
+        "responses": {"201": {"description": "Job created", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Envelope"}}}}}
+      }
+    },
+    "/v3/jobs/{job_id}/source": {
+      "post": {
+        "operationId": "importSourceArtifactV3",
+        "summary": "Lock the immutable authoritative English source",
+        "x-openai-isConsequential": true,
+        "parameters": [{"name": "job_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCreate"}}}},
+        "responses": {"201": {"description": "Source locked", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Envelope"}}}}}
+      }
+    },
+    "/v3/jobs/{job_id}/draft": {
+      "post": {
+        "operationId": "createSpanishDraftV3",
+        "summary": "Store an immutable Spanish draft",
+        "x-openai-isConsequential": true,
+        "parameters": [{"name": "job_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactCreate"}}}},
+        "responses": {"201": {"description": "Draft stored", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Envelope"}}}}}
+      }
+    },
+    "/v3/jobs/{job_id}/qa": {
+      "post": {
+        "operationId": "runJobQAV3",
+        "summary": "Run all mandatory V3 validators and publication gates",
+        "x-openai-isConsequential": true,
+        "parameters": [{"name": "job_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+        "requestBody": {"required": false, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/JobQA"}}}},
+        "responses": {"200": {"description": "V3 QA evidence", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Envelope"}}}}}
+      }
+    },
+    "/v3/jobs/{job_id}/qa/coverage": {
+      "post": {
+        "operationId": "runCoverageQA",
+        "summary": "Run eligible-string coverage QA",
+        "x-openai-isConsequential": false,
+        "parameters": [{"name": "job_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+        "responses": {"200": {"description": "Coverage evidence", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Envelope"}}}}}
+      }
+    },
+    "/v3/jobs/{job_id}/qa/facts": {
+      "post": {
+        "operationId": "runFactsParityQA",
+        "summary": "Run facts and numerical parity QA",
+        "x-openai-isConsequential": false,
+        "parameters": [{"name": "job_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+        "responses": {"200": {"description": "Facts evidence", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Envelope"}}}}}
+      }
+    },
+    "/v3/jobs/{job_id}/qa/csv": {
+      "post": {
+        "operationId": "runCSVContractQA",
+        "summary": "Run mandatory pSEO CSV and image-alt contract QA",
+        "x-openai-isConsequential": false,
+        "parameters": [{"name": "job_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+        "requestBody": {"required": false, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/JobQA"}}}},
+        "responses": {"200": {"description": "CSV evidence", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Envelope"}}}}}
+      }
+    },
+    "/v3/jobs/{job_id}/evidence": {
+      "get": {
+        "operationId": "getJobEvidence",
+        "summary": "Get complete job state, artifact hashes, checks, events, and provenance",
+        "x-openai-isConsequential": false,
+        "parameters": [{"name": "job_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+        "responses": {"200": {"description": "Job evidence", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Envelope"}}}}}
+      }
+    },
+    "/v3/regression/run": {
+      "post": {
+        "operationId": "runRegressionSuite",
+        "summary": "Run positive, negative, and adversarial V3 fixtures",
+        "x-openai-isConsequential": true,
+        "responses": {"200": {"description": "Regression report", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Envelope"}}}}}
+      }
+    },
+    "/v3/evidence-packages": {
+      "post": {
+        "operationId": "createEvidencePackage",
+        "summary": "Package only READY jobs with verified provenance",
+        "x-openai-isConsequential": true,
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "properties": {"job_id": {"type": "string", "format": "uuid"}, "actor": {"type": "string"}}, "required": ["job_id"]}}}},
+        "responses": {"201": {"description": "Evidence package", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Envelope"}}}}}
+      }
+    }
+  }
+}

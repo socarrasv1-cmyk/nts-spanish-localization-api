@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.git_stage import GitStaging, GitStagingError
-from app.main import API_VERSION, _rate_windows, app
+from app.main import API_VERSION, LEGACY_API_VERSION, _rate_windows, app
 from app.store import store
 from app.tm import TranslationMemory
 
@@ -226,7 +226,7 @@ def test_git_staging_creates_real_commit(tmp_path):
 def test_gpt_action_contract_matches_live_app():
     schema_path = Path(__file__).parents[1] / "NTS-LOCALIZATION-ACTIONS-OPENAPI-V2.1-LIVE.json"
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
-    assert schema["info"]["version"] == API_VERSION
+    assert schema["info"]["version"] == LEGACY_API_VERSION
     operations = []
     app_routes = {(route.path, method.lower()) for route in app.routes
                   for method in getattr(route, "methods", set())}
@@ -251,4 +251,4 @@ def test_gpt_action_contract_matches_live_app():
             assert (path, method) in app_routes
             assert isinstance(operation["x-openai-isConsequential"], bool)
             operations.append(operation["operationId"])
-    assert len(operations) == len(set(operations)) == 16
+    assert len(operations) == len(set(operations)) == 17

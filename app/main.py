@@ -20,6 +20,7 @@ from app.git_stage import GitStaging, GitStagingError
 from app.security import verify_bearer_token
 from app.store import store
 from app.tm import TranslationMemory
+from app.v3 import router as v3_router
 from app.validators import (
     ValidationResult, score_validation_results, validate_english_residue,
     validate_links, validate_php, validate_protected_tokens, validate_schema,
@@ -27,14 +28,16 @@ from app.validators import (
 )
 
 
-API_VERSION = "2.2.0"
+LEGACY_API_VERSION = "2.2.0"
+API_VERSION = os.getenv("NTS_API_VERSION", "3.0.0")
 MAX_BODY_BYTES = int(os.getenv("NTS_MAX_BODY_BYTES", "95000"))
 RATE_LIMIT_PER_MINUTE = int(os.getenv("NTS_RATE_LIMIT_PER_MINUTE", "120"))
 
 app = FastAPI(
     title="NTS Localization API", version=API_VERSION,
-    description="Evidence-based Spanish localization validation and staging for NTS",
+    description="NTS Spanish Translator V3 orchestration, evidence, and validation API with backward-compatible V2.2 routes",
 )
+app.include_router(v3_router)
 tm_service = TranslationMemory()
 git_service = GitStaging()
 _rate_windows: Dict[str, deque] = defaultdict(deque)
@@ -116,7 +119,7 @@ def _client_key(request: Request) -> str:
 
 @app.middleware("http")
 async def production_guardrails(request: Request, call_next):
-    if request.url.path.startswith("/v2/"):
+    if request.url.path.startswith(("/v2/", "/v3/")):
         content_length = request.headers.get("content-length")
         if content_length and content_length.isdigit() and int(content_length) > MAX_BODY_BYTES:
             return _error(413, "payload_too_large", f"Request body exceeds {MAX_BODY_BYTES} bytes")
