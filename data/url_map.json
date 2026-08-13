@@ -1,0 +1,10 @@
+{
+  "url_mappings": [
+    {
+      "english_url": "/services/break-bulk-transport.php",
+      "spanish_url": "/es/servicios/transporte-de-carga-fraccionada.php",
+      "site_id": "nts-main",
+      "status": "approved"
+    }
+  ]
+}
