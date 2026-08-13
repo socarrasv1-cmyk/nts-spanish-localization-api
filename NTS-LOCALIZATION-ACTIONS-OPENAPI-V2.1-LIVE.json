@@ -117,11 +117,21 @@
                 "items": {
                   "type": "object",
                   "properties": {
-                    "validator": {"type": "string"},
-                    "code": {"type": "string"},
-                    "severity": {"type": "string"},
-                    "message": {"type": "string"},
-                    "details": {"type": "object"}
+                    "validator": {
+                      "type": "string"
+                    },
+                    "code": {
+                      "type": "string"
+                    },
+                    "severity": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "details": {
+                      "type": "object"
+                    }
                   }
                 }
               },
@@ -903,7 +913,10 @@
                             "$ref": "#/components/schemas/TranslationMemoryEntry"
                           }
                         },
-                        "count": {"type": "integer", "minimum": 0}
+                        "count": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
                       }
                     }
                   }
@@ -990,7 +1003,7 @@
         "operationId": "approveTranslationProposal",
         "x-openai-isConsequential": true,
         "summary": "Approve translation proposal",
-        "description": "Accept a proposal and add it to approved Translation Memory.",
+        "description": "Approve only a proposal_id currently returned by listTranslationProposals with status proposed. If the API reports not found, do not retry that ID; list proposals again and require a new proposal if absent.",
         "tags": [
           "Translation Memory"
         ],
@@ -1032,7 +1045,7 @@
         "operationId": "rejectTranslationProposal",
         "x-openai-isConsequential": true,
         "summary": "Reject translation proposal",
-        "description": "Decline a proposal. It will not be added to Translation Memory.",
+        "description": "Reject only a proposal_id currently returned by listTranslationProposals with status proposed. If the API reports not found, do not retry that ID; list proposals again and require a new proposal if absent.",
         "tags": [
           "Translation Memory"
         ],
@@ -1075,6 +1088,65 @@
                     },
                     "data": {
                       "$ref": "#/components/schemas/Proposal"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v2/tm/proposals": {
+      "get": {
+        "operationId": "listTranslationProposals",
+        "x-openai-isConsequential": false,
+        "summary": "List translation proposals",
+        "description": "List proposals by status. Always call this before approving or rejecting. Only review a proposal_id currently returned with status proposed.",
+        "tags": [
+          "Translation Memory"
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "proposed",
+                "approved",
+                "rejected"
+              ],
+              "default": "proposed"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Proposal list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "request_id": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "proposals": {
+                          "type": "array",
+                          "items": {
+                            "$ref": "#/components/schemas/Proposal"
+                          }
+                        }
+                      }
                     }
                   }
                 }
