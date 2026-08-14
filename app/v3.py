@@ -3,9 +3,11 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import asyncio
 import hashlib
+import ipaddress
 import json
 import os
 from pathlib import Path
+import socket
 import subprocess
 from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin, urlsplit
@@ -46,11 +48,24 @@ router = APIRouter(prefix="/v3", dependencies=[Security(verify_v3_bearer_token)]
 
 SITE_ID_ALIASES = {
     "het": "het-main", "het-main": "het-main",
+    "heavy-equipment-transport": "het-main",
+    "heavyequipmenttransport.com": "het-main",
+    "www.heavyequipmenttransport.com": "het-main",
     "nts": "nts-main", "nts-main": "nts-main",
     "stt": "stt-main", "stt-main": "stt-main",
     "semitruck": "stt-main", "semitrucktransport.com": "stt-main",
 }
 SITE_PROFILES = {
+    "het-main": {
+        "site_id": "het-main",
+        "brand_name": "Heavy Equipment Transport",
+        "domains": ["heavyequipmenttransport.com", "www.heavyequipmenttransport.com"],
+        "source_locale": "en-US",
+        "target_locale": "es-US",
+        "status": "verified",
+        "spanish_path_policy": "prefix_es",
+        "inventory_root": "https://www.heavyequipmenttransport.com/",
+    },
     "stt-main": {
         "site_id": "stt-main",
         "brand_name": "SemiTruckTransport.com",
@@ -62,14 +77,24 @@ SITE_PROFILES = {
         "inventory_root": "https://semitrucktransport.com/",
     },
 }
-DEFAULT_URL_MAPPINGS = [{
-    "site_id": "stt-main",
-    "source_url": "/",
-    "spanish_url": "/es",
-    "approved": True,
-    "status": "approved",
-    "approved_by": "published-hreflang",
-}]
+DEFAULT_URL_MAPPINGS = [
+    {
+        "site_id": "het-main",
+        "source_url": "/",
+        "spanish_url": "/es",
+        "approved": True,
+        "status": "approved",
+        "approved_by": "verified-site-policy",
+    },
+    {
+        "site_id": "stt-main",
+        "source_url": "/",
+        "spanish_url": "/es",
+        "approved": True,
+        "status": "approved",
+        "approved_by": "published-hreflang",
+    },
+]
 ALLOWED_MODES = {"strict_mirror", "seo_localization", "content_optimization", "audit", "csv_pseo"}
 TERMINAL_STATES = {"PACKAGED", "CLOSED"}
 INVENTORY_SCOPE = "homepage_global_navigation_mega_menu_footer_parents"
@@ -286,8 +311,50 @@ def _profile_for_url(url: str) -> tuple[str, Dict[str, Any], str]:
         if parsed.hostname.casefold() in {str(domain).casefold() for domain in profile.get("domains", [])}
     ), None)
     if not site_id:
-        raise HTTPException(status_code=404, detail="No verified V3 site profile found for this domain")
+        hostname = parsed.hostname.casefold().rstrip(".")
+        if hostname == "localhost" or hostname.endswith(".localhost"):
+            raise HTTPException(status_code=422, detail="Local and private hostnames are not permitted")
+        try:
+            address = ipaddress.ip_address(hostname)
+        except ValueError:
+            address = None
+        if address and not address.is_global:
+            raise HTTPException(status_code=422, detail="Local and private network addresses are not permitted")
+        site_id = f"web-{_sha256(hostname)[:16]}"
+        aliases = {hostname}
+        if hostname.startswith("www."):
+            aliases.add(hostname[4:])
+        else:
+            aliases.add(f"www.{hostname}")
+        SITE_PROFILES[site_id] = {
+            "site_id": site_id,
+            "brand_name": hostname,
+            "domains": sorted(aliases),
+            "source_locale": "en-US",
+            "target_locale": "es-US",
+            "status": "verified_public_https_at_intake",
+            "spanish_path_policy": "prefix_es",
+            "inventory_root": f"https://{hostname}/",
+            "profile_type": "dynamic_public_web",
+        }
     return site_id, SITE_PROFILES[site_id], parsed.path or "/"
+
+
+async def _assert_public_hostname(hostname: str) -> None:
+    """Reject local, reserved, and private destinations before every fetch hop."""
+    normalized = (hostname or "").casefold().rstrip(".")
+    if not normalized or normalized == "localhost" or normalized.endswith(".localhost"):
+        raise HTTPException(status_code=422, detail="Local and private hostnames are not permitted")
+    try:
+        addresses = [ipaddress.ip_address(normalized)]
+    except ValueError:
+        try:
+            records = await asyncio.to_thread(socket.getaddrinfo, normalized, 443, type=socket.SOCK_STREAM)
+        except socket.gaierror as exc:
+            raise HTTPException(status_code=422, detail="The website hostname could not be resolved") from exc
+        addresses = list({ipaddress.ip_address(record[4][0]) for record in records})
+    if not addresses or any(not address.is_global for address in addresses):
+        raise HTTPException(status_code=422, detail="Local, private, and reserved network destinations are not permitted")
 
 
 def _authoritative_url(site_id: str, path_or_url: str) -> str:
@@ -299,7 +366,7 @@ def _authoritative_url(site_id: str, path_or_url: str) -> str:
 
 
 async def _fetch_authoritative_url(site_id: str, path_or_url: str) -> Dict[str, Any]:
-    """Fetch only a hard-coded verified site, validating every redirect hop."""
+    """Fetch only the same public HTTPS site, validating every redirect hop."""
     profile = SITE_PROFILES.get(_normalize_site_id(site_id))
     if not profile:
         raise HTTPException(status_code=404, detail="Verified site profile not found")
@@ -311,6 +378,7 @@ async def _fetch_authoritative_url(site_id: str, path_or_url: str) -> Dict[str, 
             parsed = urlsplit(current)
             if parsed.scheme.casefold() != "https" or (parsed.hostname or "").casefold() not in allowed:
                 raise HTTPException(status_code=422, detail="Authoritative fetch attempted to leave the verified site")
+            await _assert_public_hostname(parsed.hostname or "")
             response = await client.get(current)
             if response.status_code in {301, 302, 303, 307, 308}:
                 location = response.headers.get("location")
@@ -340,10 +408,20 @@ async def _fetch_authoritative_url(site_id: str, path_or_url: str) -> Dict[str, 
 def _inventory_links(site_id: str, root_html: str, root_url: str, max_pages: int) -> List[Dict[str, Any]]:
     """Discover homepage and global-navigation pages from authoritative HTML."""
     soup = BeautifulSoup(root_html, "lxml")
+    root_path = urlsplit(root_url).path or "/"
     candidates: Dict[str, Dict[str, Any]] = {
-        "/": {"source_url": "/", "label": "Homepage", "contexts": ["homepage"]}
+        root_path: {
+            "source_url": root_path,
+            "label": "Homepage" if root_path == "/" else "Requested page-family root",
+            "contexts": ["homepage" if root_path == "/" else "page_family_root"],
+        }
     }
     containers = list(soup.select("header, nav, footer"))
+    # When intake starts from a page-family URL (for example /services.php),
+    # links in the primary content define that family. This keeps discovery
+    # universal instead of requiring a site-specific mega-menu convention.
+    if urlsplit(root_url).path not in {"", "/"}:
+        containers.extend(soup.select("main"))
     containers.extend(soup.find_all(attrs={"class": lambda value: value and "mega" in " ".join(value if isinstance(value, list) else [value]).casefold()}))
     containers.extend(soup.find_all(attrs={"id": lambda value: value and "mega" in str(value).casefold()}))
     for container in containers:
@@ -390,8 +468,9 @@ def _inventory_links(site_id: str, root_html: str, root_url: str, max_pages: int
 
 
 async def _inventory_site(url: str, max_pages: int = MAX_INVENTORY_PAGES) -> Dict[str, Any]:
-    site_id, profile, _ = _profile_for_url(url)
-    root = await _fetch_authoritative_url(site_id, profile["inventory_root"])
+    site_id, profile, requested_path = _profile_for_url(url)
+    inventory_url = profile["inventory_root"] if requested_path == "/" else url
+    root = await _fetch_authoritative_url(site_id, inventory_url)
     pages = _inventory_links(site_id, root["content"], root["url"], max_pages)
     for page in pages:
         page["target_url"] = _spanish_target_path(site_id, page["source_url"])
@@ -547,16 +626,13 @@ async def resolve_site_v3(url: str = Query(..., min_length=1)):
     parsed = urlsplit(url.strip())
     if parsed.scheme.casefold() != "https" or not parsed.hostname:
         raise HTTPException(status_code=422, detail="url must be an absolute HTTPS URL")
-    site_id = next((
-        candidate_id for candidate_id, profile in SITE_PROFILES.items()
-        if parsed.hostname in profile.get("domains", [])
-    ), None)
-    if not site_id:
-        raise HTTPException(status_code=404, detail="No verified V3 site profile found for this domain")
+    site_id, profile, _ = _profile_for_url(url)
     source_url = _source_path(site_id, url)
     mapping = _approved_mapping(site_id, source_url)
+    if not mapping and profile.get("spanish_path_policy") == "prefix_es":
+        mapping = _ensure_policy_mapping(site_id, source_url)
     return _response({
-        "site": SITE_PROFILES[site_id],
+        "site": profile,
         "source_url": source_url,
         "approved_url_mapping": mapping,
         "intake_status": "URL_RESOLVED" if mapping else "MAPPING_REQUIRED",
