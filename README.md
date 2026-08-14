@@ -19,7 +19,7 @@ FastAPI starter for the NTS Spanish Intelligence Hub Actions V2.
 - batch QA
 - staging ZIP generation
 - x-api-key header compatibility
-- health endpoints (`/health`, `/healthz`)
+- health endpoint (`/health`)
 - OpenAPI schema (`/openapi.json`)
 
 ## Safety boundary

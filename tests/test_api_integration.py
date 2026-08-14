@@ -27,6 +27,34 @@ def test_auth_optional_in_development_without_api_key(monkeypatch):
     assert response.json()["ok"] is True
 
 
+def test_auth_optional_in_development_even_with_api_key(monkeypatch):
+    monkeypatch.setenv("NTS_ENV", "development")
+    monkeypatch.setenv("NTS_API_KEY", "test-key")
+
+    import app.main
+    importlib.reload(app.main)
+    client = TestClient(app.main.app)
+
+    response = client.get("/v2/sites")
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+
+
+def test_development_mode_does_not_enforce_wrong_api_key(monkeypatch):
+    monkeypatch.setenv("NTS_ENV", "development")
+    monkeypatch.setenv("NTS_API_KEY", "expected-key")
+
+    import app.main
+    importlib.reload(app.main)
+    client = TestClient(app.main.app)
+
+    response = client.get("/v2/sites", headers={"x-api-key": "wrong-key"})
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+
+
 def test_auth_required_in_production_with_x_api_key(monkeypatch):
     monkeypatch.setenv("NTS_ENV", "production")
     monkeypatch.setenv("NTS_API_KEY", "test-key")

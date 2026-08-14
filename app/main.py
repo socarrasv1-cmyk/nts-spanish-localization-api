@@ -6,7 +6,7 @@ import os
 import uuid
 from datetime import datetime
 
-from app.security import verify_bearer_token
+from app.security import verify_bearer_token, set_request_api_key, reset_request_api_key
 from app.store import store
 from app.validators import (
     validate_php, validate_structure, validate_protected_tokens,
@@ -42,14 +42,14 @@ if allowed_origins:
 @app.middleware("http")
 async def map_x_api_key_to_authorization(request: Request, call_next):
     x_api_key = request.headers.get("x-api-key")
-    authorization = request.headers.get("authorization")
-    if x_api_key and not authorization:
-        scheme = "Be" + "arer"
-        request.scope["headers"] = [
-            *request.scope["headers"],
-            (b"authorization", f"{scheme} {x_api_key}".encode("utf-8")),
-        ]
-    return await call_next(request)
+    if not x_api_key:
+        return await call_next(request)
+
+    token = set_request_api_key(x_api_key)
+    try:
+        return await call_next(request)
+    finally:
+        reset_request_api_key(token)
 
 # Initialize services
 tm_service = TranslationMemory()
