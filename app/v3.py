@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import asyncio
 import hashlib
 import json
 import os
 from pathlib import Path
 import subprocess
 from typing import Any, Dict, List, Optional
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 import uuid
 
+from bs4 import BeautifulSoup
 from fastapi import APIRouter, HTTPException, Query, Security
+import httpx
 
 from app.security import verify_v3_bearer_token
 from app.store import store
@@ -55,6 +58,8 @@ SITE_PROFILES = {
         "source_locale": "en-US",
         "target_locale": "es-US",
         "status": "verified",
+        "spanish_path_policy": "prefix_es",
+        "inventory_root": "https://semitrucktransport.com/",
     },
 }
 DEFAULT_URL_MAPPINGS = [{
@@ -67,6 +72,10 @@ DEFAULT_URL_MAPPINGS = [{
 }]
 ALLOWED_MODES = {"strict_mirror", "seo_localization", "content_optimization", "audit", "csv_pseo"}
 TERMINAL_STATES = {"PACKAGED", "CLOSED"}
+INVENTORY_SCOPE = "homepage_global_navigation_mega_menu_footer_parents"
+MAX_INVENTORY_PAGES = 80
+MAX_SOURCE_BYTES = 1_500_000
+HTML_CONTENT_TYPES = {"text/html", "application/xhtml+xml"}
 
 
 def _now() -> str:
@@ -226,6 +235,175 @@ def _approved_mapping(site_id: str, source_url: str) -> Optional[Dict[str, Any]]
     return None
 
 
+def _spanish_target_path(site_id: str, source_url: str) -> str:
+    """Apply the site's approved deterministic Spanish-path policy."""
+    profile = SITE_PROFILES.get(_normalize_site_id(site_id))
+    if not profile or profile.get("spanish_path_policy") != "prefix_es":
+        raise HTTPException(status_code=409, detail="No approved deterministic Spanish-path policy exists")
+    path = _source_path(site_id, source_url)
+    if path == "/":
+        return "/es"
+    if path == "/es" or path.startswith("/es/"):
+        raise HTTPException(status_code=422, detail="Spanish paths cannot be used as English source paths")
+    return f"/es{path}"
+
+
+def _ensure_policy_mapping(site_id: str, source_url: str) -> Dict[str, Any]:
+    """Persist an approved mapping produced by the site's explicit path policy."""
+    normalized_site = _normalize_site_id(site_id)
+    source_path = _source_path(normalized_site, source_url)
+    existing = _approved_mapping(normalized_site, source_path)
+    if existing:
+        return existing
+    target_path = _spanish_target_path(normalized_site, source_path)
+    for mapping in _mappings():
+        mapping_site = _normalize_site_id(str(mapping.get("site_id", "")))
+        mapping_source = mapping.get("source_url") or mapping.get("english_url")
+        if mapping_site == normalized_site and mapping.get("spanish_url") == target_path and mapping_source != source_path:
+            raise HTTPException(status_code=409, detail=f"Spanish URL collision detected for {target_path}")
+    mapping = {
+        "site_id": normalized_site,
+        "source_url": source_path,
+        "spanish_url": target_path,
+        "approved": True,
+        "status": "approved",
+        "approved_by": "blueprint-v3-prefix-es-policy",
+        "approved_at": _now(),
+        "policy": "prefix_es",
+    }
+    store.mutate("url_map", lambda data: data.setdefault("mappings", []).append(mapping))
+    return mapping
+
+
+def _profile_for_url(url: str) -> tuple[str, Dict[str, Any], str]:
+    parsed = urlsplit((url or "").strip())
+    if parsed.scheme.casefold() != "https" or not parsed.hostname:
+        raise HTTPException(status_code=422, detail="url must be an absolute HTTPS URL")
+    if parsed.query or parsed.fragment:
+        raise HTTPException(status_code=422, detail="url must not contain a query or fragment")
+    site_id = next((
+        candidate_id for candidate_id, profile in SITE_PROFILES.items()
+        if parsed.hostname.casefold() in {str(domain).casefold() for domain in profile.get("domains", [])}
+    ), None)
+    if not site_id:
+        raise HTTPException(status_code=404, detail="No verified V3 site profile found for this domain")
+    return site_id, SITE_PROFILES[site_id], parsed.path or "/"
+
+
+def _authoritative_url(site_id: str, path_or_url: str) -> str:
+    profile = SITE_PROFILES.get(_normalize_site_id(site_id))
+    if not profile:
+        raise HTTPException(status_code=404, detail="Verified site profile not found")
+    path = _source_path(site_id, path_or_url)
+    return urljoin(str(profile["inventory_root"]), path)
+
+
+async def _fetch_authoritative_url(site_id: str, path_or_url: str) -> Dict[str, Any]:
+    """Fetch only a hard-coded verified site, validating every redirect hop."""
+    profile = SITE_PROFILES.get(_normalize_site_id(site_id))
+    if not profile:
+        raise HTTPException(status_code=404, detail="Verified site profile not found")
+    allowed = {str(domain).casefold() for domain in profile.get("domains", [])}
+    current = _authoritative_url(site_id, path_or_url)
+    headers = {"User-Agent": "Socarrasv1-Spanish-Translator-Blueprint-V3/3.0"}
+    async with httpx.AsyncClient(timeout=httpx.Timeout(20.0), follow_redirects=False, headers=headers) as client:
+        for _ in range(4):
+            parsed = urlsplit(current)
+            if parsed.scheme.casefold() != "https" or (parsed.hostname or "").casefold() not in allowed:
+                raise HTTPException(status_code=422, detail="Authoritative fetch attempted to leave the verified site")
+            response = await client.get(current)
+            if response.status_code in {301, 302, 303, 307, 308}:
+                location = response.headers.get("location")
+                if not location:
+                    raise HTTPException(status_code=502, detail="Authoritative source returned an invalid redirect")
+                current = urljoin(current, location)
+                continue
+            if response.status_code != 200:
+                raise HTTPException(status_code=502, detail=f"Authoritative source returned HTTP {response.status_code}")
+            content = response.content
+            if len(content) > MAX_SOURCE_BYTES:
+                raise HTTPException(status_code=413, detail="Authoritative source exceeds the V3 source-size limit")
+            content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().casefold()
+            if content_type not in HTML_CONTENT_TYPES:
+                raise HTTPException(status_code=415, detail=f"Authoritative source is not HTML ({content_type or 'unknown'})")
+            return {
+                "url": str(response.url),
+                "path": _source_path(site_id, str(response.url)),
+                "content": response.text,
+                "content_type": content_type,
+                "etag": response.headers.get("etag"),
+                "last_modified": response.headers.get("last-modified"),
+            }
+    raise HTTPException(status_code=502, detail="Authoritative source exceeded the redirect limit")
+
+
+def _inventory_links(site_id: str, root_html: str, root_url: str, max_pages: int) -> List[Dict[str, Any]]:
+    """Discover homepage and global-navigation pages from authoritative HTML."""
+    soup = BeautifulSoup(root_html, "lxml")
+    candidates: Dict[str, Dict[str, Any]] = {
+        "/": {"source_url": "/", "label": "Homepage", "contexts": ["homepage"]}
+    }
+    containers = list(soup.select("header, nav, footer"))
+    containers.extend(soup.find_all(attrs={"class": lambda value: value and "mega" in " ".join(value if isinstance(value, list) else [value]).casefold()}))
+    containers.extend(soup.find_all(attrs={"id": lambda value: value and "mega" in str(value).casefold()}))
+    for container in containers:
+        context = "footer" if container.name == "footer" or container.find_parent("footer") else "navigation"
+        if "mega" in " ".join(container.get("class", [])).casefold() or "mega" in str(container.get("id", "")).casefold():
+            context = "mega_menu"
+        for anchor in container.find_all("a", href=True):
+            href = str(anchor.get("href", "")).strip()
+            absolute = urljoin(root_url, href)
+            parsed = urlsplit(absolute)
+            profile = SITE_PROFILES[site_id]
+            if parsed.scheme.casefold() != "https" or (parsed.hostname or "").casefold() not in {
+                str(domain).casefold() for domain in profile.get("domains", [])
+            }:
+                continue
+            if parsed.query or parsed.fragment:
+                continue
+            path = parsed.path or "/"
+            lowered = path.casefold()
+            if lowered == "/es" or lowered.startswith("/es/"):
+                continue
+            if lowered.startswith(("/wp-admin", "/wp-login", "/cdn-cgi")):
+                continue
+            if any(lowered.endswith(extension) for extension in (
+                ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".pdf", ".zip", ".css", ".js"
+            )):
+                continue
+            record = candidates.setdefault(path, {
+                "source_url": path,
+                "label": " ".join(anchor.stripped_strings).strip() or path,
+                "contexts": [],
+            })
+            if context not in record["contexts"]:
+                record["contexts"].append(context)
+    ordered = sorted(candidates.values(), key=lambda item: (item["source_url"] != "/", item["source_url"]))
+    if len(ordered) > max_pages:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Inventory found {len(ordered)} pages, exceeding the approved maximum of {max_pages}; narrow the scope",
+        )
+    return ordered
+
+
+async def _inventory_site(url: str, max_pages: int = MAX_INVENTORY_PAGES) -> Dict[str, Any]:
+    site_id, profile, _ = _profile_for_url(url)
+    root = await _fetch_authoritative_url(site_id, profile["inventory_root"])
+    pages = _inventory_links(site_id, root["content"], root["url"], max_pages)
+    for page in pages:
+        page["target_url"] = _spanish_target_path(site_id, page["source_url"])
+        page["mapping_policy"] = "prefix_es"
+    return {
+        "site": profile,
+        "scope": INVENTORY_SCOPE,
+        "authoritative_root": root["url"],
+        "inventory_sha256": _sha256(json.dumps(pages, ensure_ascii=False, sort_keys=True)),
+        "page_count": len(pages),
+        "pages": pages,
+    }
+
+
 def _get_job(job_id: str) -> Dict[str, Any]:
     job = store.load("v3_jobs").get("jobs", {}).get(job_id)
     if not job:
@@ -342,10 +520,12 @@ async def get_capabilities_manifest():
         },
         "public_read_operations": [
             "getSystemProvenance", "getCapabilitiesManifest", "getKnowledgeManifest",
-            "resolveSiteV3", "listReadyJobsV3", "getJobEvidence",
+            "resolveSiteV3", "inventorySiteV3", "getLocalizationBatchV3",
+            "getLockedSourceV3", "listReadyJobsV3", "getJobEvidence",
         ],
         "protected_write_operations": [
-            "createLocalizationJobV3", "importSourceArtifactV3", "createSpanishDraftV3",
+            "createLocalizationJobV3", "createLocalizationBatchV3",
+            "importSourceArtifactV3", "createSpanishDraftV3",
             "runJobQAV3", "runCoverageQA", "runFactsParityQA", "runCSVContractQA",
             "runRegressionSuite", "createEvidencePackage",
         ],
@@ -447,6 +627,152 @@ async def import_source_artifact_v3(job_id: str, payload: Dict[str, Any]):
     target_state = "SOURCE_LOCKED" if job.get("url_mapping") else "BLOCKED"
     _transition(job, target_state, "source_locked", payload.get("actor", "api-user"), source_sha256=artifact["sha256"])
     return _response({key: value for key, value in artifact.items() if key != "content"})
+
+
+@router.get("/jobs/{job_id}/source", operation_id="getLockedSourceV3")
+async def get_locked_source_v3(job_id: str):
+    """Return the exact authoritative source locked for translation."""
+    job = _get_job(job_id)
+    artifact_id = job.get("source_artifact_id")
+    if not artifact_id:
+        raise HTTPException(status_code=409, detail="The authoritative source has not been locked")
+    artifact = _get_artifact(artifact_id)
+    return _response({
+        "job_id": job_id,
+        "site_id": job.get("site_id"),
+        "source_url": job.get("source_url"),
+        "target_url": job.get("target_url"),
+        "state": job.get("state"),
+        "artifact_id": artifact["artifact_id"],
+        "sha256": artifact["sha256"],
+        "bytes": artifact["bytes"],
+        "content": artifact["content"],
+        "metadata": artifact.get("metadata", {}),
+    })
+
+
+@router.post("/sites/inventory", operation_id="inventorySiteV3")
+async def inventory_site_v3(payload: Dict[str, Any]):
+    """Inventory the official homepage/global navigation without search copies."""
+    max_pages = int(payload.get("max_pages", MAX_INVENTORY_PAGES))
+    if max_pages < 1 or max_pages > MAX_INVENTORY_PAGES:
+        raise HTTPException(status_code=422, detail=f"max_pages must be between 1 and {MAX_INVENTORY_PAGES}")
+    inventory = await _inventory_site(str(_required(payload, "url")), max_pages=max_pages)
+    return _response(inventory)
+
+
+@router.post("/batches", status_code=201, operation_id="createLocalizationBatchV3")
+async def create_localization_batch_v3(payload: Dict[str, Any]):
+    """Inventory, approve deterministic mappings, fetch, and lock a full page set."""
+    mode = str(payload.get("mode", "strict_mirror")).casefold()
+    if mode != "strict_mirror":
+        raise HTTPException(status_code=422, detail="Production website batches currently require strict_mirror mode")
+    max_pages = int(payload.get("max_pages", MAX_INVENTORY_PAGES))
+    if max_pages < 1 or max_pages > MAX_INVENTORY_PAGES:
+        raise HTTPException(status_code=422, detail=f"max_pages must be between 1 and {MAX_INVENTORY_PAGES}")
+    inventory = await _inventory_site(str(_required(payload, "url")), max_pages=max_pages)
+    site_id = inventory["site"]["site_id"]
+    semaphore = asyncio.Semaphore(6)
+
+    async def fetch_page(page: Dict[str, Any]) -> Dict[str, Any]:
+        async with semaphore:
+            fetched = await _fetch_authoritative_url(site_id, page["source_url"])
+            return {"page": page, "fetched": fetched}
+
+    fetched_pages = await asyncio.gather(*(fetch_page(page) for page in inventory["pages"]))
+    fingerprint = _sha256(json.dumps({
+        "site_id": site_id,
+        "scope": inventory["scope"],
+        "mode": mode,
+        "inventory_sha256": inventory["inventory_sha256"],
+        "source_hashes": [_sha256(item["fetched"]["content"]) for item in fetched_pages],
+    }, sort_keys=True))
+    if payload.get("reuse_identical_batch", True):
+        for existing in store.load("v3_batches").get("batches", {}).values():
+            if existing.get("fingerprint") == fingerprint:
+                return _response(existing)
+
+    batch_id = str(uuid.uuid4())
+    job_ids: List[str] = []
+    page_records: List[Dict[str, Any]] = []
+    actor = str(payload.get("actor", "gpt-action"))
+    for item in fetched_pages:
+        page, fetched = item["page"], item["fetched"]
+        mapping = _ensure_policy_mapping(site_id, page["source_url"])
+        created = await create_localization_job_v3({
+            "site_id": site_id,
+            "source_url": page["source_url"],
+            "mode": mode,
+            "locale": payload.get("locale", "es-US"),
+            "page_family": inventory["scope"],
+            "risk_class": payload.get("risk_class", "standard"),
+            "actor": actor,
+        })
+        job = created["data"]
+        locked = await import_source_artifact_v3(job["job_id"], {
+            "content": fetched["content"],
+            "actor": actor,
+            "metadata": {
+                "authoritative_url": fetched["url"],
+                "content_type": fetched["content_type"],
+                "etag": fetched.get("etag"),
+                "last_modified": fetched.get("last_modified"),
+                "inventory_contexts": page.get("contexts", []),
+                "batch_id": batch_id,
+            },
+        })
+        job_ids.append(job["job_id"])
+        page_records.append({
+            "job_id": job["job_id"],
+            "source_url": page["source_url"],
+            "target_url": mapping["spanish_url"],
+            "label": page.get("label"),
+            "contexts": page.get("contexts", []),
+            "source_artifact": locked["data"],
+            "state": "SOURCE_LOCKED",
+        })
+    batch = {
+        "batch_id": batch_id,
+        "site_id": site_id,
+        "site_name": inventory["site"].get("brand_name"),
+        "scope": inventory["scope"],
+        "mode": mode,
+        "locale": payload.get("locale", "es-US"),
+        "state": "SOURCE_LOCKED",
+        "page_count": len(page_records),
+        "job_ids": job_ids,
+        "pages": page_records,
+        "inventory_sha256": inventory["inventory_sha256"],
+        "fingerprint": fingerprint,
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    store.mutate("v3_batches", lambda data: data.setdefault("batches", {}).__setitem__(batch_id, batch))
+    return _response(batch)
+
+
+@router.get("/batches/{batch_id}", operation_id="getLocalizationBatchV3")
+async def get_localization_batch_v3(batch_id: str):
+    batch = store.load("v3_batches").get("batches", {}).get(batch_id)
+    if not batch:
+        raise HTTPException(status_code=404, detail=f"V3 batch {batch_id} not found")
+    current = dict(batch)
+    pages = []
+    states: List[str] = []
+    for page in batch.get("pages", []):
+        record = dict(page)
+        job = _get_job(str(record["job_id"]))
+        record["state"] = job.get("state")
+        record["qa_score"] = job.get("qa", {}).get("score")
+        record["visual_review"] = job.get("visual_review")
+        states.append(str(job.get("state")))
+        pages.append(record)
+    current["pages"] = pages
+    current["state_counts"] = {state: states.count(state) for state in sorted(set(states))}
+    current["state"] = "READY" if states and all(state == "READY" for state in states) else (
+        "PACKAGED" if states and all(state == "PACKAGED" for state in states) else "IN_PROGRESS"
+    )
+    return _response(current)
 
 
 @router.post("/jobs/{job_id}/draft", status_code=201, operation_id="createSpanishDraftV3")
