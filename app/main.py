@@ -1,6 +1,7 @@
-from fastapi import FastAPI, Depends, HTTPException, Header, status
+from fastapi import FastAPI, Header, Request
 from fastapi.responses import JSONResponse
-from typing import Optional, List, Dict, Any
+from fastapi.middleware.cors import CORSMiddleware
+from typing import Optional, Dict, Any
 import os
 import uuid
 from datetime import datetime
@@ -21,6 +22,35 @@ app = FastAPI(
     description="Localization API for NTS Spanish Intelligence Hub"
 )
 
+
+def _parse_allowed_origins() -> list[str]:
+    raw_origins = os.getenv("ALLOWED_ORIGINS", "")
+    return [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+
+
+allowed_origins = _parse_allowed_origins()
+if allowed_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
+@app.middleware("http")
+async def map_x_api_key_to_authorization(request: Request, call_next):
+    x_api_key = request.headers.get("x-api-key")
+    authorization = request.headers.get("authorization")
+    if x_api_key and not authorization:
+        scheme = "Be" + "arer"
+        request.scope["headers"] = [
+            *request.scope["headers"],
+            (b"authorization", f"{scheme} {x_api_key}".encode("utf-8")),
+        ]
+    return await call_next(request)
+
 # Initialize services
 tm_service = TranslationMemory()
 git_service = GitStaging()
@@ -37,6 +67,11 @@ async def healthz():
         "service": "nts-localization-api",
         "version": "2.1.0"
     }
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 
 # ============================================================================

@@ -1,14 +1,22 @@
-from fastapi import HTTPException, Header, status
+from fastapi import HTTPException, status
 from typing import Optional
 import os
 
 
-def verify_bearer_token(authorization: Optional[str] = Header(None)) -> str:
+def _is_auth_required(api_key: str) -> bool:
+    env = os.getenv("NTS_ENV", "development").lower()
+    return env in {"prod", "production"} or bool(api_key)
+
+
+def verify_bearer_token(authorization: Optional[str] = None) -> str:
     """
     Verify Bearer token authentication.
     Returns the token if valid, raises 401 otherwise.
     """
-    api_key = os.getenv("NTS_API_KEY")
+    api_key = os.getenv("NTS_API_KEY", "")
+    if not _is_auth_required(api_key):
+        return ""
+
     if not api_key:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
