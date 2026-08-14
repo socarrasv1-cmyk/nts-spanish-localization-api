@@ -44,6 +44,27 @@
         },
         "required": ["site_id", "source_url"]
       },
+      "SiteInventoryRequest": {
+        "type": "object",
+        "properties": {
+          "url": {"type": "string", "format": "uri"},
+          "max_pages": {"type": "integer", "minimum": 1, "maximum": 80, "default": 80}
+        },
+        "required": ["url"]
+      },
+      "BatchCreate": {
+        "type": "object",
+        "properties": {
+          "url": {"type": "string", "format": "uri"},
+          "mode": {"type": "string", "enum": ["strict_mirror"], "default": "strict_mirror"},
+          "locale": {"type": "string", "default": "es-US"},
+          "max_pages": {"type": "integer", "minimum": 1, "maximum": 80, "default": 80},
+          "reuse_identical_batch": {"type": "boolean", "default": true},
+          "risk_class": {"type": "string"},
+          "actor": {"type": "string"}
+        },
+        "required": ["url"]
+      },
       "ArtifactCreate": {
         "type": "object",
         "properties": {
@@ -106,6 +127,35 @@
         "responses": {"200": {"description": "Verified site resolution", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Envelope"}}}}}
       }
     },
+    "/v3/sites/inventory": {
+      "post": {
+        "operationId": "inventorySiteV3",
+        "summary": "Inventory authoritative homepage, global navigation, mega-menu, and footer parent pages",
+        "description": "Reads only the verified live site. It never uses search-engine copies or invents URLs.",
+        "x-openai-isConsequential": false,
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SiteInventoryRequest"}}}},
+        "responses": {"200": {"description": "Authoritative governed page inventory", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Envelope"}}}}}
+      }
+    },
+    "/v3/batches": {
+      "post": {
+        "operationId": "createLocalizationBatchV3",
+        "summary": "Inventory, map, fetch, and source-lock a complete strict-mirror website batch",
+        "description": "Use this operation for website-wide or menu-family requests instead of creating a single homepage job.",
+        "x-openai-isConsequential": true,
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/BatchCreate"}}}},
+        "responses": {"201": {"description": "Governed multi-page batch with all authoritative sources locked", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Envelope"}}}}}
+      }
+    },
+    "/v3/batches/{batch_id}": {
+      "get": {
+        "operationId": "getLocalizationBatchV3",
+        "summary": "Get live page-by-page state for a governed localization batch",
+        "x-openai-isConsequential": false,
+        "parameters": [{"name": "batch_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+        "responses": {"200": {"description": "Current governed batch status", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Envelope"}}}}}
+      }
+    },
     "/v3/jobs": {
       "post": {
         "operationId": "createLocalizationJobV3",
@@ -128,6 +178,13 @@
       }
     },
     "/v3/jobs/{job_id}/source": {
+      "get": {
+        "operationId": "getLockedSourceV3",
+        "summary": "Retrieve the exact authoritative English source locked for translation",
+        "x-openai-isConsequential": false,
+        "parameters": [{"name": "job_id", "in": "path", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+        "responses": {"200": {"description": "Immutable locked source content and hash", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Envelope"}}}}}
+      },
       "post": {
         "operationId": "importSourceArtifactV3",
         "summary": "Lock the immutable authoritative English source",
