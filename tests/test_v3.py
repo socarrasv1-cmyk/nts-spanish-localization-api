@@ -361,7 +361,7 @@ def test_semitruck_inventory_discovers_authoritative_global_pages(monkeypatch):
     root_html = """<!doctype html><html><body>
     <header><a href="/">Home</a><nav><a href="/services">Services</a></nav></header>
     <div class="mega-menu"><a href="/equipment">Equipment</a><a href="https://example.com/offsite">Ignore</a></div>
-    <footer><a href="/contact">Contact</a><a href="/es/servicios">Español</a></footer>
+    <footer><a href="/contact">Contact</a><a href="/es/servicios">Español</a><a href="/sitemap.xml">Sitemap</a></footer>
     </body></html>"""
 
     async def fake_fetch(site_id, path_or_url):
