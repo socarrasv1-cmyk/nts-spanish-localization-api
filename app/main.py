@@ -1,11 +1,12 @@
-from fastapi import FastAPI, Depends, HTTPException, Header, status
+from fastapi import FastAPI, Header, Request
 from fastapi.responses import JSONResponse
-from typing import Optional, List, Dict, Any
+from fastapi.middleware.cors import CORSMiddleware
+from typing import Optional, Dict, Any
 import os
 import uuid
 from datetime import datetime
 
-from app.security import verify_bearer_token
+from app.security import verify_bearer_token, set_request_api_key, reset_request_api_key
 from app.store import store
 from app.validators import (
     validate_php, validate_structure, validate_protected_tokens,
@@ -20,6 +21,35 @@ app = FastAPI(
     version="2.1.0",
     description="Localization API for NTS Spanish Intelligence Hub"
 )
+
+
+def _parse_allowed_origins() -> list[str]:
+    raw_origins = os.getenv("ALLOWED_ORIGINS", "")
+    return [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
+
+
+allowed_origins = _parse_allowed_origins()
+if allowed_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+
+@app.middleware("http")
+async def map_x_api_key_to_authorization(request: Request, call_next):
+    x_api_key = request.headers.get("x-api-key")
+    if not x_api_key:
+        return await call_next(request)
+
+    token = set_request_api_key(x_api_key)
+    try:
+        return await call_next(request)
+    finally:
+        reset_request_api_key(token)
 
 # Initialize services
 tm_service = TranslationMemory()
@@ -37,6 +67,11 @@ async def healthz():
         "service": "nts-localization-api",
         "version": "2.1.0"
     }
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 
 # ============================================================================
