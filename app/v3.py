@@ -367,6 +367,8 @@ def _inventory_links(site_id: str, root_html: str, root_url: str, max_pages: int
                 continue
             if lowered.startswith(("/wp-admin", "/wp-login", "/cdn-cgi")):
                 continue
+            if lowered.startswith("/sitemap") or lowered.endswith(".xml"):
+                continue
             if any(lowered.endswith(extension) for extension in (
                 ".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".pdf", ".zip", ".css", ".js"
             )):
