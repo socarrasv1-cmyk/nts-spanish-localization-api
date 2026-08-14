@@ -1,6 +1,7 @@
 import hashlib
 import json
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
@@ -390,6 +391,56 @@ def test_semitruck_inventory_discovers_authoritative_global_pages(monkeypatch):
     }
 
 
+def test_het_services_page_family_resolves_inventories_and_source_locks(monkeypatch):
+    services_html = """<!doctype html><html><body>
+    <header><nav><a href="/services.php">Services</a></nav></header>
+    <main>
+      <a href="/break-bulk-cargo.php">Break Bulk Cargo</a>
+      <a href="/bulk-equipment-transport.php">Bulk Equipment Transport</a>
+    </main>
+    <footer><a href="/contact.php">Contact</a></footer>
+    </body></html>"""
+    source_html = {
+        "/services.php": services_html,
+        "/break-bulk-cargo.php": "<html><body><main><h1>Break Bulk Cargo</h1></main></body></html>",
+        "/bulk-equipment-transport.php": "<html><body><main><h1>Bulk Equipment Transport</h1></main></body></html>",
+        "/contact.php": "<html><body><main><h1>Contact</h1></main></body></html>",
+    }
+
+    async def fake_fetch(site_id, path_or_url):
+        assert site_id == "het-main"
+        path = urlsplit(str(path_or_url)).path if str(path_or_url).startswith("https://") else str(path_or_url)
+        return {
+            "url": f"https://www.heavyequipmenttransport.com{path}",
+            "path": path,
+            "content": source_html[path],
+            "content_type": "text/html",
+            "etag": f'"{path}"',
+            "last_modified": None,
+        }
+
+    monkeypatch.setattr("app.v3._fetch_authoritative_url", fake_fetch)
+
+    resolved = client.get("/v3/sites/resolve", headers=AUTH, params={
+        "url": "https://www.heavyequipmenttransport.com/services.php",
+    })
+    assert resolved.status_code == 200, resolved.text
+    assert resolved.json()["data"]["site"]["site_id"] == "het-main"
+    assert resolved.json()["data"]["approved_url_mapping"]["spanish_url"] == "/es/services.php"
+
+    response = client.post("/v3/batches", headers=AUTH, json={
+        "url": "https://www.heavyequipmenttransport.com/services.php",
+        "mode": "strict_mirror",
+        "locale": "es-US",
+    })
+    assert response.status_code == 201, response.text
+    batch = response.json()["data"]
+    assert batch["state"] == "SOURCE_LOCKED"
+    assert batch["page_count"] == 4
+    assert {page["source_url"] for page in batch["pages"]} == set(source_html)
+    assert all(page["state"] == "SOURCE_LOCKED" for page in batch["pages"])
+
+
 def test_semitruck_batch_auto_maps_fetches_and_locks_all_sources(monkeypatch):
     root_html = """<!doctype html><html><body>
     <header><nav><a href="/services">Services</a></nav></header>
@@ -464,7 +515,29 @@ def test_semitruck_intake_blocks_cross_site_and_unapproved_paths():
         params={"url": "https://semitrucktransport.com/services"},
     )
     assert unresolved.status_code == 200
-    assert unresolved.json()["data"]["intake_status"] == "MAPPING_REQUIRED"
+    assert unresolved.json()["data"]["intake_status"] == "URL_RESOLVED"
+    assert unresolved.json()["data"]["approved_url_mapping"]["spanish_url"] == "/es/services"
+
+
+def test_universal_public_https_resolver_creates_isolated_dynamic_profile():
+    response = client.get(
+        "/v3/sites/resolve",
+        headers=AUTH,
+        params={"url": "https://example.com/articles/topic"},
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["site"]["profile_type"] == "dynamic_public_web"
+    assert data["source_url"] == "/articles/topic"
+    assert data["approved_url_mapping"]["spanish_url"] == "/es/articles/topic"
+    assert data["intake_status"] == "URL_RESOLVED"
+
+    blocked = client.get(
+        "/v3/sites/resolve",
+        headers=AUTH,
+        params={"url": "https://127.0.0.1/private"},
+    )
+    assert blocked.status_code == 422
 
 
 def test_v3_validator_evidence_never_reports_legacy_bundle_version():
