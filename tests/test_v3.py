@@ -306,7 +306,11 @@ def test_v3_action_contract_matches_routes_and_has_unique_operations():
             assert (path, method) in app_routes
             assert isinstance(operation["x-openai-isConsequential"], bool)
             operations.append(operation["operationId"])
-    assert len(operations) == len(set(operations)) == 15
+    assert len(operations) == len(set(operations)) == 19
+    assert {
+        "inventorySiteV3", "createLocalizationBatchV3",
+        "getLocalizationBatchV3", "getLockedSourceV3",
+    }.issubset(operations)
 
 
 def test_v3_only_runtime_exposes_no_legacy_routes():
@@ -351,6 +355,99 @@ def test_semitruck_site_resolver_and_homepage_intake():
     assert job["source_url"] == "/"
     assert job["target_url"] == "/es"
     assert job["state"] == "URL_RESOLVED"
+
+
+def test_semitruck_inventory_discovers_authoritative_global_pages(monkeypatch):
+    root_html = """<!doctype html><html><body>
+    <header><a href="/">Home</a><nav><a href="/services">Services</a></nav></header>
+    <div class="mega-menu"><a href="/equipment">Equipment</a><a href="https://example.com/offsite">Ignore</a></div>
+    <footer><a href="/contact">Contact</a><a href="/es/servicios">Español</a></footer>
+    </body></html>"""
+
+    async def fake_fetch(site_id, path_or_url):
+        assert site_id == "stt-main"
+        return {
+            "url": "https://semitrucktransport.com/",
+            "path": "/",
+            "content": root_html,
+            "content_type": "text/html",
+            "etag": None,
+            "last_modified": None,
+        }
+
+    monkeypatch.setattr("app.v3._fetch_authoritative_url", fake_fetch)
+    response = client.post("/v3/sites/inventory", headers=AUTH, json={
+        "url": "https://semitrucktransport.com/",
+    })
+    assert response.status_code == 200, response.text
+    inventory = response.json()["data"]
+    assert inventory["scope"] == "homepage_global_navigation_mega_menu_footer_parents"
+    assert {page["source_url"] for page in inventory["pages"]} == {
+        "/", "/services", "/equipment", "/contact",
+    }
+    assert {page["target_url"] for page in inventory["pages"]} == {
+        "/es", "/es/services", "/es/equipment", "/es/contact",
+    }
+
+
+def test_semitruck_batch_auto_maps_fetches_and_locks_all_sources(monkeypatch):
+    root_html = """<!doctype html><html><body>
+    <header><nav><a href="/services">Services</a></nav></header>
+    <div id="mega-navigation"><a href="/equipment">Equipment</a></div>
+    <footer><a href="/contact">Contact</a></footer>
+    </body></html>"""
+    source_html = {
+        "/": root_html,
+        "/services": "<html><body><main><h1>Services</h1></main></body></html>",
+        "/equipment": "<html><body><main><h1>Equipment</h1></main></body></html>",
+        "/contact": "<html><body><main><h1>Contact</h1></main></body></html>",
+    }
+
+    async def fake_fetch(site_id, path_or_url):
+        path = "/" if str(path_or_url).startswith("https://") else str(path_or_url)
+        return {
+            "url": f"https://semitrucktransport.com{path}",
+            "path": path,
+            "content": source_html[path],
+            "content_type": "text/html",
+            "etag": f'"{path}"',
+            "last_modified": None,
+        }
+
+    monkeypatch.setattr("app.v3._fetch_authoritative_url", fake_fetch)
+    response = client.post("/v3/batches", headers=AUTH, json={
+        "url": "https://semitrucktransport.com/",
+        "mode": "strict_mirror",
+        "locale": "es-US",
+    })
+    assert response.status_code == 201, response.text
+    batch = response.json()["data"]
+    assert batch["state"] == "SOURCE_LOCKED"
+    assert batch["page_count"] == 4
+    assert {page["target_url"] for page in batch["pages"]} == {
+        "/es", "/es/services", "/es/equipment", "/es/contact",
+    }
+    assert all(page["state"] == "SOURCE_LOCKED" for page in batch["pages"])
+    mappings = store.load("url_map")["mappings"]
+    assert any(mapping.get("source_url") == "/services" and mapping.get("approved") for mapping in mappings)
+
+    source_response = client.get(
+        f"/v3/jobs/{batch['pages'][1]['job_id']}/source",
+        headers=AUTH,
+    )
+    assert source_response.status_code == 200
+    assert source_response.json()["data"]["content"].startswith("<html")
+
+    reused = client.post("/v3/batches", headers=AUTH, json={
+        "url": "https://semitrucktransport.com/",
+        "mode": "strict_mirror",
+    })
+    assert reused.status_code == 201
+    assert reused.json()["data"]["batch_id"] == batch["batch_id"]
+
+    status = client.get(f"/v3/batches/{batch['batch_id']}", headers=AUTH)
+    assert status.status_code == 200
+    assert status.json()["data"]["state_counts"] == {"SOURCE_LOCKED": 4}
 
 
 def test_semitruck_intake_blocks_cross_site_and_unapproved_paths():
